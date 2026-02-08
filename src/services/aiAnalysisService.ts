@@ -1,2087 +1,7 @@
-
-
-// // import { GoogleGenerativeAI, Part } from "@google/generative-ai";
-// // import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
-// // import dotenv from "dotenv";
-
-// // dotenv.config();
-
-// // const API_KEY = process.env.GOOGLE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
-// // const genAI = API_KEY ? new GoogleGenerativeAI(API_KEY) : null;
-
-// // export interface Issue {
-// //   id: string;
-// //   type: "Layout" | "Typography" | "Grammar" | "Accessibility" | "Content" | "Formatting" | "Spelling";
-// //   severity: "Critical" | "Major" | "Minor";
-// //   description: string;
-// //   suggestion: string;
-// //   location: string;
-// //   pageNumber: number;
-// //   position?: { top: number; left: number; width: number; height: number; };
-// //   originalText?: string;
-// //   correctedText?: string;
-// // }
-
-// // const generateWithRetry = async (model: any, content: any, retries = 3) => {
-// //   for (let i = 0; i < retries; i++) {
-// //     try {
-// //       return await model.generateContent(content);
-// //     } catch (error: any) {
-// //       if ((error.message?.includes('503') || error.status === 503) && i < retries - 1) {
-// //         const delay = Math.pow(2, i) * 1000;
-// //         await new Promise(resolve => setTimeout(resolve, delay));
-// //         continue;
-// //       }
-// //       throw error;
-// //     }
-// //   }
-// // };
-
-
-// // export const analyzeDocumentWithAI = async (fileBuffer: Buffer, fileName: string) => {
-// //   if (!genAI) throw new Error("API Key missing");
-// //   try {
-// //     const model = genAI.getGenerativeModel({ 
-// //       model: "gemini-2.5-flash",
-// //       generationConfig: { responseMimeType: "application/json" }
-// //     });
-
-// //     const pdfPart: Part = {
-// //       inlineData: { data: fileBuffer.toString("base64"), mimeType: "application/pdf" }
-// //     };
-
-// //     const prompt = `Analyze document "${fileName}". Return JSON. 
-// //       Identify specific errors and provide "position" {top, left, width, height} as 0-100 percentages.
-// //       JSON structure: { "score": 0, "summary": "", "issues": [{ "type": "Spelling", "severity": "Critical", "description": "", "suggestion": "", "pageNumber": 1, "position": { "top": 0, "left": 0, "width": 0, "height": 0 } }] }`;
-
-// //     const result = await generateWithRetry(model, [prompt, pdfPart]);
-// //     const response = await result!.response;
-// //     const parsedData = JSON.parse(response.text());
-    
-// //     const issuesWithIds = parsedData.issues.map((issue: any, index: number) => ({
-// //         ...issue,
-// //         id: `issue-${Date.now()}-${index}`
-// //     }));
-
-// //     // FIXED: Ensure score is always a number and return clean structure
-// //     const score = parsedData.score ?? 0;
-    
-// //     return { 
-// //       success: true, 
-// //       score, // This is now guaranteed to be a number
-// //       summary: parsedData.summary || "",
-// //       issues: issuesWithIds 
-// //     };
-// //   } catch (error: any) {
-// //     // Return a default structure with score = 0 on error
-// //     return { 
-// //       success: false, 
-// //       score: 0, // Default score
-// //       summary: "AI Service Error", 
-// //       issues: [] 
-// //     };
-// //   }
-// // };
-
-// // export const generateCorrectedPDF = async (originalBuffer: Buffer, issues: Issue[], fixedIssueIds: string[]): Promise<Buffer> => {
-// //   try {
-// //     const pdfDoc = await PDFDocument.load(originalBuffer);
-// //     const pages = pdfDoc.getPages();
-// //     const issuesToApply = issues.filter(issue => fixedIssueIds.includes(issue.id));
-
-// //     issuesToApply.forEach((issue) => {
-// //       const pageIndex = issue.pageNumber - 1;
-// //       if (pageIndex >= 0 && pageIndex < pages.length && issue.position) {
-// //         const page = pages[pageIndex];
-// //         const { width, height } = page.getSize();
-// //         const rectX = (issue.position.left / 100) * width;
-// //         const rectY = height - ((issue.position.top / 100) * height) - ((issue.position.height / 100) * height);
-// //         page.drawRectangle({
-// //           x: rectX, y: rectY, width: (issue.position.width / 100) * width, height: (issue.position.height / 100) * height,
-// //           color: rgb(1, 1, 0), opacity: 0.4
-// //         });
-// //       }
-// //     });
-// //     return Buffer.from(await pdfDoc.save());
-// //   } catch (error) { return originalBuffer; }
-// // };
-// import { GoogleGenerativeAI, Part } from "@google/generative-ai";
-// import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
-// import mammoth from 'mammoth';
-// import officeParser from 'officeparser';
-// import dotenv from "dotenv";
-// import path from 'path';
-// import fs from 'fs';
-
-// dotenv.config();
-
-// const API_KEY = process.env.GOOGLE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
-// const genAI = API_KEY ? new GoogleGenerativeAI(API_KEY) : null;
-
-// export interface Issue {
-//   id: string;
-//   type: "Layout" | "Typography" | "Grammar" | "Accessibility" | "Content" | "Formatting" | "Spelling";
-//   severity: "Critical" | "Major" | "Minor";
-//   description: string;
-//   suggestion: string;
-//   location: string;
-//   pageNumber: number;
-//   position?: { top: number; left: number; width: number; height: number; };
-//   originalText?: string;
-//   correctedText?: string;
-// }
-
-// // NEW: Document processing interface
-// export interface ProcessedDocument {
-//   textContent: string;
-//   fileType: 'pdf' | 'docx' | 'doc' | 'txt' | 'image';
-//   fileName: string;
-//   pageCount?: number;
-//   wordCount?: number;
-//   metadata?: any;
-// }
-
-// const generateWithRetry = async (model: any, content: any, retries = 3) => {
-//   for (let i = 0; i < retries; i++) {
-//     try {
-//       return await model.generateContent(content);
-//     } catch (error: any) {
-//       if ((error.message?.includes('503') || error.status === 503) && i < retries - 1) {
-//         const delay = Math.pow(2, i) * 1000;
-//         await new Promise(resolve => setTimeout(resolve, delay));
-//         continue;
-//       }
-//       throw error;
-//     }
-//   }
-// };
-
-// // NEW: Extract text from Word documents
-// export const extractTextFromWordDocument = async (fileBuffer: Buffer, fileName: string): Promise<ProcessedDocument> => {
-//   try {
-//     const fileExtension = path.extname(fileName).toLowerCase();
-    
-//     if (fileExtension === '.docx') {
-//       const result = await mammoth.extractRawText({ buffer: fileBuffer });
-//       const text = result.value;
-      
-//       return {
-//         textContent: text,
-//         fileType: 'docx',
-//         fileName,
-//         wordCount: text.split(/\s+/).length,
-//         metadata: { paragraphs: text.split(/\n\s*\n/).length }
-//       };
-//     } 
-//     else if (fileExtension === '.doc') {
-//       const text = await officeParser.parseBuffer(fileBuffer);
-      
-//       return {
-//         textContent: text,
-//         fileType: 'doc',
-//         fileName,
-//         wordCount: text.split(/\s+/).length
-//       };
-//     }
-//     else if (fileExtension === '.txt') {
-//       const text = fileBuffer.toString('utf-8');
-      
-//       return {
-//         textContent: text,
-//         fileType: 'txt',
-//         fileName,
-//         wordCount: text.split(/\s+/).length
-//       };
-//     }
-//     else {
-//       throw new Error(`Unsupported file type: ${fileExtension}`);
-//     }
-//   } catch (error) {
-//     console.error('Error extracting text from Word document:', error);
-//     throw new Error('Failed to extract text from document');
-//   }
-// };
-
-// // UPDATED: Analyze any document type
-// export const analyzeDocumentWithAI = async (fileBuffer: Buffer, fileName: string, fileType?: string): Promise<{
-//   success: boolean;
-//   score: number;
-//   summary: string;
-//   issues: any[];
-//   processedContent?: ProcessedDocument;
-// }> => {
-//   if (!genAI) throw new Error("API Key missing");
-  
-//   try {
-//     const model = genAI.getGenerativeModel({ 
-//       model: "gemini-2.5-flash",
-//       generationConfig: { responseMimeType: "application/json" }
-//     });
-
-//     const fileExtension = path.extname(fileName).toLowerCase();
-//     const isWordFile = ['.docx', '.doc', '.txt'].includes(fileExtension);
-//     let processedDoc: ProcessedDocument | undefined;
-//     let prompt = '';
-
-//     if (isWordFile) {
-//       // Process Word/document file
-//       processedDoc = await extractTextFromWordDocument(fileBuffer, fileName);
-      
-//       prompt = `Analyze the following text document "${fileName}":
-      
-//       DOCUMENT CONTENT:
-//       ${processedDoc.textContent.substring(0, 30000)} // Limit to avoid token limits
-      
-//       Analyze this document for:
-//       1. Grammar and spelling errors
-//       2. Formatting and structure issues
-//       3. Content clarity and coherence
-//       4. Accessibility considerations
-      
-//       Return JSON with the following structure:
-//       {
-//         "score": number (0-100),
-//         "summary": "overall summary of document quality",
-//         "issues": [{
-//           "type": "Spelling" | "Grammar" | "Formatting" | "Content" | "Accessibility" | "Structure",
-//           "severity": "Critical" | "Major" | "Minor",
-//           "description": "detailed description of the issue",
-//           "suggestion": "specific suggestion for correction",
-//           "location": "approximate location in document (e.g., 'Paragraph 3, Sentence 2')",
-//           "pageNumber": 1,
-//           "originalText": "the exact text with the issue (important for replacement)",
-//           "correctedText": "the corrected text (important for replacement)"
-//         }]
-//       }
-      
-//       IMPORTANT: For each issue, include originalText and correctedText for easy text replacement.`;
-      
-//       const result = await generateWithRetry(model, prompt);
-//       const response = await result!.response;
-//       const parsedData = JSON.parse(response.text());
-      
-//       const issuesWithIds = parsedData.issues.map((issue: any, index: number) => ({
-//         ...issue,
-//         id: `issue-${Date.now()}-${index}`,
-//         pageNumber: issue.pageNumber || 1
-//       }));
-
-//       return { 
-//         success: true, 
-//         score: parsedData.score ?? 0,
-//         summary: parsedData.summary || "",
-//         issues: issuesWithIds,
-//         processedContent: processedDoc
-//       };
-//     } else {
-//       // Original PDF analysis logic
-//       const pdfPart: Part = {
-//         inlineData: { data: fileBuffer.toString("base64"), mimeType: "application/pdf" }
-//       };
-
-//       prompt = `Analyze document "${fileName}". Return JSON. 
-//         Identify specific errors and provide "position" {top, left, width, height} as 0-100 percentages.
-//         JSON structure: { "score": 0, "summary": "", "issues": [{ "type": "Spelling", "severity": "Critical", "description": "", "suggestion": "", "pageNumber": 1, "position": { "top": 0, "left": 0, "width": 0, "height": 0 } }] }`;
-
-//       const result = await generateWithRetry(model, [prompt, pdfPart]);
-//       const response = await result!.response;
-//       const parsedData = JSON.parse(response.text());
-      
-//       const issuesWithIds = parsedData.issues.map((issue: any, index: number) => ({
-//         ...issue,
-//         id: `issue-${Date.now()}-${index}`
-//       }));
-
-//       const score = parsedData.score ?? 0;
-      
-//       return { 
-//         success: true, 
-//         score,
-//         summary: parsedData.summary || "",
-//         issues: issuesWithIds 
-//       };
-//     }
-//   } catch (error: any) {
-//     console.error('AI Analysis Error:', error);
-//     return { 
-//       success: false, 
-//       score: 0,
-//       summary: "AI Service Error: " + (error.message || "Unknown error"), 
-//       issues: [] 
-//     };
-//   }
-// };
-
-// // NEW: Generate corrected Word document
-// export const generateCorrectedWordDocument = async (
-//   originalContent: string, 
-//   issues: Issue[], 
-//   fixedIssueIds: string[]
-// ): Promise<{ content: string; fileType: string }> => {
-//   try {
-//     let correctedContent = originalContent;
-//     const issuesToApply = issues.filter(issue => fixedIssueIds.includes(issue.id));
-
-//     // Apply fixes in reverse order to avoid index shifting issues
-//     for (const issue of issuesToApply.reverse()) {
-//       if (issue.originalText && issue.correctedText) {
-//         correctedContent = correctedContent.replace(issue.originalText, issue.correctedText);
-//       }
-//     }
-
-//     // Create a simple HTML document with the corrected content
-//     const correctedDoc = `
-//       <!DOCTYPE html>
-//       <html>
-//       <head>
-//         <meta charset="UTF-8">
-//         <title>Corrected Document</title>
-//         <style>
-//           body { font-family: Arial, sans-serif; line-height: 1.6; margin: 40px; }
-//           .correction { background-color: #e8f5e8; padding: 2px; border-left: 3px solid #4CAF50; }
-//           .summary { background-color: #f5f5f5; padding: 15px; margin: 20px 0; border-radius: 5px; }
-//         </style>
-//       </head>
-//       <body>
-//         <h1>Corrected Document</h1>
-//         <div class="summary">
-//           <strong>Applied Corrections:</strong> ${issuesToApply.length} issues fixed
-//         </div>
-//         <div id="content">
-//           ${correctedContent.split('\n').map(para => `<p>${para}</p>`).join('')}
-//         </div>
-//         ${issuesToApply.length > 0 ? `
-//         <div class="summary">
-//           <h3>Correction Details:</h3>
-//           <ul>
-//             ${issuesToApply.map(issue => `
-//               <li><strong>${issue.type}</strong> (${issue.severity}): ${issue.description} → ${issue.suggestion}</li>
-//             `).join('')}
-//           </ul>
-//         </div>
-//         ` : ''}
-//       </body>
-//       </html>
-//     `;
-
-//     return {
-//       content: correctedDoc,
-//       fileType: 'text/html'
-//     };
-//   } catch (error) {
-//     console.error('Error generating corrected Word document:', error);
-//     return {
-//       content: originalContent,
-//       fileType: 'text/html'
-//     };
-//   }
-// };
-
-// // UPDATED: Generate corrected PDF (kept original functionality)
-// export const generateCorrectedPDF = async (
-//   originalBuffer: Buffer, 
-//   issues: Issue[], 
-//   fixedIssueIds: string[]
-// ): Promise<Buffer> => {
-//   try {
-//     const pdfDoc = await PDFDocument.load(originalBuffer);
-//     const pages = pdfDoc.getPages();
-//     const issuesToApply = issues.filter(issue => fixedIssueIds.includes(issue.id));
-
-//     issuesToApply.forEach((issue) => {
-//       const pageIndex = issue.pageNumber - 1;
-//       if (pageIndex >= 0 && pageIndex < pages.length && issue.position) {
-//         const page = pages[pageIndex];
-//         const { width, height } = page.getSize();
-//         const rectX = (issue.position.left / 100) * width;
-//         const rectY = height - ((issue.position.top / 100) * height) - ((issue.position.height / 100) * height);
-//         page.drawRectangle({
-//           x: rectX, y: rectY, width: (issue.position.width / 100) * width, height: (issue.position.height / 100) * height,
-//           color: rgb(1, 1, 0), opacity: 0.4
-//         });
-//       }
-//     });
-//     return Buffer.from(await pdfDoc.save());
-//   } catch (error) { 
-//     console.error('Error generating corrected PDF:', error);
-//     return originalBuffer; 
-//   }
-// };
-
-// // NEW: Generate corrected document based on file type
-// export const generateCorrectedDocument = async (
-//   originalBuffer: Buffer,
-//   fileName: string,
-//   issues: Issue[],
-//   fixedIssueIds: string[],
-//   fileType?: string
-// ): Promise<{ buffer: Buffer; mimeType: string; fileName: string }> => {
-//   const fileExtension = path.extname(fileName).toLowerCase();
-  
-//   if (['.docx', '.doc', '.txt'].includes(fileExtension)) {
-//     // Process Word/document files
-//     const processedDoc = await extractTextFromWordDocument(originalBuffer, fileName);
-//     const correctedResult = await generateCorrectedWordDocument(
-//       processedDoc.textContent,
-//       issues,
-//       fixedIssueIds
-//     );
-    
-//     const timestamp = new Date().toISOString().split('T')[0];
-//     return {
-//       buffer: Buffer.from(correctedResult.content, 'utf-8'),
-//       mimeType: correctedResult.fileType,
-//       fileName: `corrected_${fileName.replace(/\.[^/.]+$/, '')}_${timestamp}.html`
-//     };
-//   } else {
-//     // Process PDF files
-//     const correctedBuffer = await generateCorrectedPDF(originalBuffer, issues, fixedIssueIds);
-//     const timestamp = new Date().toISOString().split('T')[0];
-    
-//     return {
-//       buffer: correctedBuffer,
-//       mimeType: 'application/pdf',
-//       fileName: `corrected_${fileName.replace('.pdf', `_${timestamp}.pdf`)}`
-//     };
-//   }
-// };
-// import { GoogleGenerativeAI, Part } from "@google/generative-ai";
-// import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
-// import mammoth from 'mammoth';
-// import dotenv from "dotenv";
-// import path from 'path';
-// import * as fs from 'fs';
-
-// dotenv.config();
-
-// const API_KEY = process.env.GOOGLE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
-// const genAI = API_KEY ? new GoogleGenerativeAI(API_KEY) : null;
-
-// export interface Issue {
-//   id: string;
-//   type: "Layout" | "Typography" | "Grammar" | "Accessibility" | "Content" | "Formatting" | "Spelling";
-//   severity: "Critical" | "Major" | "Minor";
-//   description: string;
-//   suggestion: string;
-//   location: string;
-//   pageNumber: number;
-//   position?: { top: number; left: number; width: number; height: number; };
-//   originalText?: string;
-//   correctedText?: string;
-// }
-
-// // NEW: Document processing interface
-// export interface ProcessedDocument {
-//   textContent: string;
-//   fileType: 'pdf' | 'docx' | 'doc' | 'txt' | 'image';
-//   fileName: string;
-//   pageCount?: number;
-//   wordCount?: number;
-//   metadata?: any;
-// }
-
-// const generateWithRetry = async (model: any, content: any, retries = 3) => {
-//   for (let i = 0; i < retries; i++) {
-//     try {
-//       return await model.generateContent(content);
-//     } catch (error: any) {
-//       if ((error.message?.includes('503') || error.status === 503) && i < retries - 1) {
-//         const delay = Math.pow(2, i) * 1000;
-//         await new Promise(resolve => setTimeout(resolve, delay));
-//         continue;
-//       }
-//       throw error;
-//     }
-//   }
-// };
-
-// // NEW: Extract text from Word documents - FIXED officeparser import
-// export const extractTextFromWordDocument = async (fileBuffer: Buffer, fileName: string): Promise<ProcessedDocument> => {
-//   try {
-//     const fileExtension = path.extname(fileName).toLowerCase();
-    
-//     if (fileExtension === '.docx') {
-//       // Use mammoth for .docx files
-//       const result = await mammoth.extractRawText({ buffer: fileBuffer });
-//       const text = result.value;
-      
-//       return {
-//         textContent: text,
-//         fileType: 'docx',
-//         fileName,
-//         wordCount: text.split(/\s+/).length,
-//         metadata: { paragraphs: text.split(/\n\s*\n/).length }
-//       };
-//     } 
-//     else if (fileExtension === '.doc') {
-//       // FIX: Use mammoth with a different approach for .doc files
-//       // Note: Mammoth doesn't support .doc files directly, so we'll use textract or simple conversion
-//       // For now, return an empty text with error message
-//       const text = "[.DOC file detected - content extraction requires additional libraries]\n" +
-//                    "Please convert to .docx format for full text analysis.";
-      
-//       return {
-//         textContent: text,
-//         fileType: 'doc',
-//         fileName,
-//         wordCount: 0
-//       };
-//     }
-//     else if (fileExtension === '.txt') {
-//       // Plain text files
-//       const text = fileBuffer.toString('utf-8');
-      
-//       return {
-//         textContent: text,
-//         fileType: 'txt',
-//         fileName,
-//         wordCount: text.split(/\s+/).length
-//       };
-//     }
-//     else {
-//       throw new Error(`Unsupported file type: ${fileExtension}`);
-//     }
-//   } catch (error) {
-//     console.error('Error extracting text from Word document:', error);
-    
-//     // Fallback: Try to extract as plain text
-//     try {
-//       const text = fileBuffer.toString('utf-8', 0, Math.min(fileBuffer.length, 10000));
-//       return {
-//         textContent: text || 'Could not extract text content',
-//         fileType: fileExtension as any || 'txt',
-//         fileName,
-//         wordCount: text.split(/\s+/).length
-//       };
-//     } catch (fallbackError) {
-//       throw new Error('Failed to extract text from document');
-//     }
-//   }
-// };
-
-// // Alternative: If you want to use officeparser properly, update your import
-// // First, check your package.json for the correct version:
-// // "officeparser": "^2.2.0"
-
-// // Then update the import to:
-// // import officeparser from 'officeparser';
-
-// // And update the .doc extraction to:
-// /*
-// else if (fileExtension === '.doc') {
-//   // Use officeparser for .doc files
-//   try {
-//     // officeparser 2.2.0 uses parseOfficeAsync
-//     const text = await officeparser.parseOfficeAsync(fileBuffer);
-    
-//     return {
-//       textContent: text,
-//       fileType: 'doc',
-//       fileName,
-//       wordCount: text.split(/\s+/).length
-//     };
-//   } catch (officeError) {
-//     console.warn('OfficeParser failed, using fallback:', officeError);
-//     // Fallback text extraction
-//     const text = fileBuffer.toString('utf-8', 0, Math.min(fileBuffer.length, 10000));
-//     return {
-//       textContent: text || 'Limited text extracted',
-//       fileType: 'doc',
-//       fileName,
-//       wordCount: text.split(/\s+/).length
-//     };
-//   }
-// }
-// */
-
-// // UPDATED: Analyze any document type
-// export const analyzeDocumentWithAI = async (fileBuffer: Buffer, fileName: string, fileType?: string): Promise<{
-//   success: boolean;
-//   score: number;
-//   summary: string;
-//   issues: any[];
-//   processedContent?: ProcessedDocument;
-// }> => {
-//   if (!genAI) throw new Error("API Key missing");
-  
-//   try {
-//     const model = genAI.getGenerativeModel({ 
-//       model: "gemini-2.5-flash",
-//       generationConfig: { responseMimeType: "application/json" }
-//     });
-
-//     const fileExtension = path.extname(fileName).toLowerCase();
-//     const isWordFile = ['.docx', '.doc', '.txt'].includes(fileExtension);
-//     let processedDoc: ProcessedDocument | undefined;
-//     let prompt = '';
-
-//     if (isWordFile) {
-//       // Process Word/document file
-//       processedDoc = await extractTextFromWordDocument(fileBuffer, fileName);
-      
-//       prompt = `Analyze the following text document "${fileName}":
-      
-//       DOCUMENT CONTENT:
-//       ${processedDoc.textContent.substring(0, 30000)} // Limit to avoid token limits
-      
-//       Analyze this document for:
-//       1. Grammar and spelling errors
-//       2. Formatting and structure issues
-//       3. Content clarity and coherence
-//       4. Accessibility considerations
-      
-//       Return JSON with the following structure:
-//       {
-//         "score": number (0-100),
-//         "summary": "overall summary of document quality",
-//         "issues": [{
-//           "type": "Spelling" | "Grammar" | "Formatting" | "Content" | "Accessibility" | "Structure",
-//           "severity": "Critical" | "Major" | "Minor",
-//           "description": "detailed description of the issue",
-//           "suggestion": "specific suggestion for correction",
-//           "location": "approximate location in document (e.g., 'Paragraph 3, Sentence 2')",
-//           "pageNumber": 1,
-//           "originalText": "the exact text with the issue (important for replacement)",
-//           "correctedText": "the corrected text (important for replacement)"
-//         }]
-//       }
-      
-//       IMPORTANT: For each issue, include originalText and correctedText for easy text replacement.`;
-      
-//       const result = await generateWithRetry(model, prompt);
-//       const response = await result!.response;
-//       const parsedData = JSON.parse(response.text());
-      
-//       const issuesWithIds = parsedData.issues.map((issue: any, index: number) => ({
-//         ...issue,
-//         id: `issue-${Date.now()}-${index}`,
-//         pageNumber: issue.pageNumber || 1
-//       }));
-
-//       return { 
-//         success: true, 
-//         score: parsedData.score ?? 0,
-//         summary: parsedData.summary || "",
-//         issues: issuesWithIds,
-//         processedContent: processedDoc
-//       };
-//     } else {
-//       // Original PDF analysis logic
-//       const pdfPart: Part = {
-//         inlineData: { data: fileBuffer.toString("base64"), mimeType: "application/pdf" }
-//       };
-
-//       prompt = `Analyze document "${fileName}". Return JSON. 
-//         Identify specific errors and provide "position" {top, left, width, height} as 0-100 percentages.
-//         JSON structure: { "score": 0, "summary": "", "issues": [{ "type": "Spelling", "severity": "Critical", "description": "", "suggestion": "", "pageNumber": 1, "position": { "top": 0, "left": 0, "width": 0, "height": 0 } }] }`;
-
-//       const result = await generateWithRetry(model, [prompt, pdfPart]);
-//       const response = await result!.response;
-//       const parsedData = JSON.parse(response.text());
-      
-//       const issuesWithIds = parsedData.issues.map((issue: any, index: number) => ({
-//         ...issue,
-//         id: `issue-${Date.now()}-${index}`
-//       }));
-
-//       const score = parsedData.score ?? 0;
-      
-//       return { 
-//         success: true, 
-//         score,
-//         summary: parsedData.summary || "",
-//         issues: issuesWithIds 
-//       };
-//     }
-//   } catch (error: any) {
-//     console.error('AI Analysis Error:', error);
-//     return { 
-//       success: false, 
-//       score: 0,
-//       summary: "AI Service Error: " + (error.message || "Unknown error"), 
-//       issues: [] 
-//     };
-//   }
-// };
-
-// // NEW: Generate corrected Word document
-// export const generateCorrectedWordDocument = async (
-//   originalContent: string, 
-//   issues: Issue[], 
-//   fixedIssueIds: string[]
-// ): Promise<{ content: string; fileType: string }> => {
-//   try {
-//     let correctedContent = originalContent;
-//     const issuesToApply = issues.filter(issue => fixedIssueIds.includes(issue.id));
-
-//     // Apply fixes in reverse order to avoid index shifting issues
-//     for (const issue of issuesToApply.reverse()) {
-//       if (issue.originalText && issue.correctedText) {
-//         correctedContent = correctedContent.replace(issue.originalText, issue.correctedText);
-//       }
-//     }
-
-//     // Create a simple HTML document with the corrected content
-//     const correctedDoc = `
-//       <!DOCTYPE html>
-//       <html>
-//       <head>
-//         <meta charset="UTF-8">
-//         <title>Corrected Document</title>
-//         <style>
-//           body { font-family: Arial, sans-serif; line-height: 1.6; margin: 40px; }
-//           .correction { background-color: #e8f5e8; padding: 2px; border-left: 3px solid #4CAF50; }
-//           .summary { background-color: #f5f5f5; padding: 15px; margin: 20px 0; border-radius: 5px; }
-//         </style>
-//       </head>
-//       <body>
-//         <h1>Corrected Document</h1>
-//         <div class="summary">
-//           <strong>Applied Corrections:</strong> ${issuesToApply.length} issues fixed
-//         </div>
-//         <div id="content">
-//           ${correctedContent.split('\n').map(para => `<p>${para}</p>`).join('')}
-//         </div>
-//         ${issuesToApply.length > 0 ? `
-//         <div class="summary">
-//           <h3>Correction Details:</h3>
-//           <ul>
-//             ${issuesToApply.map(issue => `
-//               <li><strong>${issue.type}</strong> (${issue.severity}): ${issue.description} → ${issue.suggestion}</li>
-//             `).join('')}
-//           </ul>
-//         </div>
-//         ` : ''}
-//       </body>
-//       </html>
-//     `;
-
-//     return {
-//       content: correctedDoc,
-//       fileType: 'text/html'
-//     };
-//   } catch (error) {
-//     console.error('Error generating corrected Word document:', error);
-//     return {
-//       content: originalContent,
-//       fileType: 'text/html'
-//     };
-//   }
-// };
-
-// // UPDATED: Generate corrected PDF (kept original functionality)
-// export const generateCorrectedPDF = async (
-//   originalBuffer: Buffer, 
-//   issues: Issue[], 
-//   fixedIssueIds: string[]
-// ): Promise<Buffer> => {
-//   try {
-//     const pdfDoc = await PDFDocument.load(originalBuffer);
-//     const pages = pdfDoc.getPages();
-//     const issuesToApply = issues.filter(issue => fixedIssueIds.includes(issue.id));
-
-//     issuesToApply.forEach((issue) => {
-//       const pageIndex = issue.pageNumber - 1;
-//       if (pageIndex >= 0 && pageIndex < pages.length && issue.position) {
-//         const page = pages[pageIndex];
-//         const { width, height } = page.getSize();
-//         const rectX = (issue.position.left / 100) * width;
-//         const rectY = height - ((issue.position.top / 100) * height) - ((issue.position.height / 100) * height);
-//         page.drawRectangle({
-//           x: rectX, y: rectY, width: (issue.position.width / 100) * width, height: (issue.position.height / 100) * height,
-//           color: rgb(1, 1, 0), opacity: 0.4
-//         });
-//       }
-//     });
-//     return Buffer.from(await pdfDoc.save());
-//   } catch (error) { 
-//     console.error('Error generating corrected PDF:', error);
-//     return originalBuffer; 
-//   }
-// };
-
-// // NEW: Generate corrected document based on file type
-// export const generateCorrectedDocument = async (
-//   originalBuffer: Buffer,
-//   fileName: string,
-//   issues: Issue[],
-//   fixedIssueIds: string[],
-//   fileType?: string
-// ): Promise<{ buffer: Buffer; mimeType: string; fileName: string }> => {
-//   const fileExtension = path.extname(fileName).toLowerCase();
-  
-//   if (['.docx', '.doc', '.txt'].includes(fileExtension)) {
-//     // Process Word/document files
-//     const processedDoc = await extractTextFromWordDocument(originalBuffer, fileName);
-//     const correctedResult = await generateCorrectedWordDocument(
-//       processedDoc.textContent,
-//       issues,
-//       fixedIssueIds
-//     );
-    
-//     const timestamp = new Date().toISOString().split('T')[0];
-//     return {
-//       buffer: Buffer.from(correctedResult.content, 'utf-8'),
-//       mimeType: correctedResult.fileType,
-//       fileName: `corrected_${fileName.replace(/\.[^/.]+$/, '')}_${timestamp}.html`
-//     };
-//   } else {
-//     // Process PDF files
-//     const correctedBuffer = await generateCorrectedPDF(originalBuffer, issues, fixedIssueIds);
-//     const timestamp = new Date().toISOString().split('T')[0];
-    
-//     return {
-//       buffer: correctedBuffer,
-//       mimeType: 'application/pdf',
-//       fileName: `corrected_${fileName.replace('.pdf', `_${timestamp}.pdf`)}`
-//     };
-//   }
-// };
-// import { GoogleGenerativeAI, Part } from "@google/generative-ai";
-// import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
-// import mammoth from 'mammoth';
-// import dotenv from "dotenv";
-// import path from 'path'; // Keep this import
-
-// dotenv.config();
-
-// const API_KEY = process.env.GOOGLE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
-// const genAI = API_KEY ? new GoogleGenerativeAI(API_KEY) : null;
-
-// export interface Issue {
-//   id: string;
-//   type: "Layout" | "Typography" | "Grammar" | "Accessibility" | "Content" | "Formatting" | "Spelling";
-//   severity: "Critical" | "Major" | "Minor";
-//   description: string;
-//   suggestion: string;
-//   location: string;
-//   pageNumber: number;
-//   position?: { top: number; left: number; width: number; height: number; };
-//   originalText?: string;
-//   correctedText?: string;
-// }
-
-// // NEW: Document processing interface
-// export interface ProcessedDocument {
-//   textContent: string;
-//   fileType: 'pdf' | 'docx' | 'doc' | 'txt' | 'image';
-//   fileName: string;
-//   pageCount?: number;
-//   wordCount?: number;
-//   metadata?: any;
-// }
-
-// const generateWithRetry = async (model: any, content: any, retries = 3) => {
-//   for (let i = 0; i < retries; i++) {
-//     try {
-//       return await model.generateContent(content);
-//     } catch (error: any) {
-//       if ((error.message?.includes('503') || error.status === 503) && i < retries - 1) {
-//         const delay = Math.pow(2, i) * 1000;
-//         await new Promise(resolve => setTimeout(resolve, delay));
-//         continue;
-//       }
-//       throw error;
-//     }
-//   }
-// };
-
-// // Helper function to get file extension safely
-// const getFileExtension = (fileName: string): string => {
-//   try {
-//     // Try using path.extname first
-//     const ext = path.extname(fileName).toLowerCase();
-//     if (ext) return ext;
-    
-//     // Fallback: manual extraction
-//     const parts = fileName.split('.');
-//     return parts.length > 1 ? `.${parts[parts.length - 1].toLowerCase()}` : '';
-//   } catch (error) {
-//     // Ultimate fallback
-//     const parts = fileName.split('.');
-//     return parts.length > 1 ? `.${parts[parts.length - 1].toLowerCase()}` : '';
-//   }
-// };
-
-// // NEW: Extract text from Word documents
-// export const extractTextFromWordDocument = async (fileBuffer: Buffer, fileName: string): Promise<ProcessedDocument> => {
-//   try {
-//     const fileExtension = getFileExtension(fileName);
-    
-//     if (fileExtension === '.docx') {
-//       // Use mammoth for .docx files
-//       const result = await mammoth.extractRawText({ buffer: fileBuffer });
-//       const text = result.value;
-      
-//       return {
-//         textContent: text,
-//         fileType: 'docx',
-//         fileName,
-//         wordCount: text.split(/\s+/).length,
-//         metadata: { paragraphs: text.split(/\n\s*\n/).length }
-//       };
-//     } 
-//     else if (fileExtension === '.doc') {
-//       // For .doc files, provide a message
-//       const text = "[.DOC file detected]\n" +
-//                    "For full text analysis, please convert this .doc file to .docx format.\n" +
-//                    "You can do this by opening it in Microsoft Word and saving as .docx.";
-      
-//       return {
-//         textContent: text,
-//         fileType: 'doc',
-//         fileName,
-//         wordCount: 0
-//       };
-//     }
-//     else if (fileExtension === '.txt') {
-//       // Plain text files
-//       const text = fileBuffer.toString('utf-8');
-      
-//       return {
-//         textContent: text,
-//         fileType: 'txt',
-//         fileName,
-//         wordCount: text.split(/\s+/).length
-//       };
-//     }
-//     else {
-//       // Try to extract as plain text for other text-based formats
-//       try {
-//         const text = fileBuffer.toString('utf-8', 0, Math.min(fileBuffer.length, 50000));
-//         return {
-//           textContent: text || 'Unknown file type',
-//           fileType: fileExtension.replace('.', '') as any || 'txt',
-//           fileName,
-//           wordCount: text.split(/\s+/).length
-//         };
-//       } catch {
-//         throw new Error(`Unsupported file type: ${fileExtension}`);
-//       }
-//     }
-//   } catch (error) {
-//     console.error('Error extracting text from Word document:', error);
-    
-//     return {
-//       textContent: 'Error extracting text. Please try a .docx, .txt, or PDF file.',
-//       fileType: 'txt',
-//       fileName,
-//       wordCount: 0
-//     };
-//   }
-// };
-
-// // UPDATED: Analyze any document type
-// export const analyzeDocumentWithAI = async (fileBuffer: Buffer, fileName: string, mimeType?: string): Promise<{
-//   success: boolean;
-//   score: number;
-//   summary: string;
-//   issues: any[];
-//   processedContent?: ProcessedDocument;
-// }> => {
-//   if (!genAI) throw new Error("API Key missing");
-  
-//   try {
-//     const model = genAI.getGenerativeModel({ 
-//       model: "gemini-2.5-flash",
-//       generationConfig: { responseMimeType: "application/json" }
-//     });
-
-//     const fileExtension = getFileExtension(fileName);
-//     const isWordFile = ['.docx', '.doc', '.txt'].includes(fileExtension);
-//     const isPDF = fileExtension === '.pdf' || (mimeType && mimeType.includes('pdf'));
-//     let processedDoc: ProcessedDocument | undefined;
-//     let prompt = '';
-
-//     if (isWordFile) {
-//       // Process Word/document file
-//       processedDoc = await extractTextFromWordDocument(fileBuffer, fileName);
-      
-//       prompt = `Analyze the following text document "${fileName}":
-      
-//       DOCUMENT CONTENT:
-//       ${processedDoc.textContent.substring(0, 30000)} // Limit to avoid token limits
-      
-//       Analyze this document for:
-//       1. Grammar and spelling errors
-//       2. Formatting and structure issues
-//       3. Content clarity and coherence
-//       4. Accessibility considerations
-      
-//       Return JSON with the following structure:
-//       {
-//         "score": number (0-100),
-//         "summary": "overall summary of document quality",
-//         "issues": [{
-//           "type": "Spelling" | "Grammar" | "Formatting" | "Content" | "Accessibility" | "Structure",
-//           "severity": "Critical" | "Major" | "Minor",
-//           "description": "detailed description of the issue",
-//           "suggestion": "specific suggestion for correction",
-//           "location": "approximate location in document (e.g., 'Paragraph 3, Sentence 2')",
-//           "pageNumber": 1,
-//           "originalText": "the exact text with the issue (important for replacement)",
-//           "correctedText": "the corrected text (important for replacement)"
-//         }]
-//       }
-      
-//       IMPORTANT: For each issue, include originalText and correctedText for easy text replacement.`;
-      
-//       const result = await generateWithRetry(model, prompt);
-//       const response = await result!.response;
-//       const parsedData = JSON.parse(response.text());
-      
-//       const issuesWithIds = parsedData.issues.map((issue: any, index: number) => ({
-//         ...issue,
-//         id: `issue-${Date.now()}-${index}`,
-//         pageNumber: issue.pageNumber || 1
-//       }));
-
-//       return { 
-//         success: true, 
-//         score: parsedData.score ?? 0,
-//         summary: parsedData.summary || "",
-//         issues: issuesWithIds,
-//         processedContent: processedDoc
-//       };
-//     } else if (isPDF) {
-//       // Original PDF analysis logic
-//       const pdfPart: Part = {
-//         inlineData: { data: fileBuffer.toString("base64"), mimeType: "application/pdf" }
-//       };
-
-//       prompt = `Analyze document "${fileName}". Return JSON. 
-//         Identify specific errors and provide "position" {top, left, width, height} as 0-100 percentages.
-//         JSON structure: { "score": 0, "summary": "", "issues": [{ "type": "Spelling", "severity": "Critical", "description": "", "suggestion": "", "pageNumber": 1, "position": { "top": 0, "left": 0, "width": 0, "height": 0 } }] }`;
-
-//       const result = await generateWithRetry(model, [prompt, pdfPart]);
-//       const response = await result!.response;
-//       const parsedData = JSON.parse(response.text());
-      
-//       const issuesWithIds = parsedData.issues.map((issue: any, index: number) => ({
-//         ...issue,
-//         id: `issue-${Date.now()}-${index}`
-//       }));
-
-//       const score = parsedData.score ?? 0;
-      
-//       return { 
-//         success: true, 
-//         score,
-//         summary: parsedData.summary || "",
-//         issues: issuesWithIds 
-//       };
-//     } else {
-//       // For other file types (images, etc.)
-//       return {
-//         success: false,
-//         score: 0,
-//         summary: `Unsupported file type: ${fileExtension}. Please upload PDF, Word (.docx, .doc), or text files.`,
-//         issues: []
-//       };
-//     }
-//   } catch (error: any) {
-//     console.error('AI Analysis Error:', error);
-//     return { 
-//       success: false, 
-//       score: 0,
-//       summary: "AI Service Error: " + (error.message || "Unknown error"), 
-//       issues: [] 
-//     };
-//   }
-// };
-
-// // NEW: Generate corrected Word document
-// export const generateCorrectedWordDocument = async (
-//   originalContent: string, 
-//   issues: Issue[], 
-//   fixedIssueIds: string[]
-// ): Promise<{ content: string; fileType: string }> => {
-//   try {
-//     let correctedContent = originalContent;
-//     const issuesToApply = issues.filter(issue => fixedIssueIds.includes(issue.id));
-
-//     // Apply fixes in reverse order to avoid index shifting issues
-//     for (const issue of issuesToApply.reverse()) {
-//       if (issue.originalText && issue.correctedText) {
-//         correctedContent = correctedContent.replace(issue.originalText, issue.correctedText);
-//       }
-//     }
-
-//     // Create a simple HTML document with the corrected content
-//     const correctedDoc = `
-//       <!DOCTYPE html>
-//       <html>
-//       <head>
-//         <meta charset="UTF-8">
-//         <title>Corrected Document</title>
-//         <style>
-//           body { font-family: Arial, sans-serif; line-height: 1.6; margin: 40px; }
-//           .correction { background-color: #e8f5e8; padding: 2px; border-left: 3px solid #4CAF50; }
-//           .summary { background-color: #f5f5f5; padding: 15px; margin: 20px 0; border-radius: 5px; }
-//         </style>
-//       </head>
-//       <body>
-//         <h1>Corrected Document</h1>
-//         <div class="summary">
-//           <strong>Applied Corrections:</strong> ${issuesToApply.length} issues fixed
-//         </div>
-//         <div id="content">
-//           ${correctedContent.split('\n').map(para => `<p>${para}</p>`).join('')}
-//         </div>
-//         ${issuesToApply.length > 0 ? `
-//         <div class="summary">
-//           <h3>Correction Details:</h3>
-//           <ul>
-//             ${issuesToApply.map(issue => `
-//               <li><strong>${issue.type}</strong> (${issue.severity}): ${issue.description} → ${issue.suggestion}</li>
-//             `).join('')}
-//           </ul>
-//         </div>
-//         ` : ''}
-//       </body>
-//       </html>
-//     `;
-
-//     return {
-//       content: correctedDoc,
-//       fileType: 'text/html'
-//     };
-//   } catch (error) {
-//     console.error('Error generating corrected Word document:', error);
-//     return {
-//       content: originalContent,
-//       fileType: 'text/html'
-//     };
-//   }
-// };
-
-// // UPDATED: Generate corrected PDF (kept original functionality)
-// export const generateCorrectedPDF = async (
-//   originalBuffer: Buffer, 
-//   issues: Issue[], 
-//   fixedIssueIds: string[]
-// ): Promise<Buffer> => {
-//   try {
-//     const pdfDoc = await PDFDocument.load(originalBuffer);
-//     const pages = pdfDoc.getPages();
-//     const issuesToApply = issues.filter(issue => fixedIssueIds.includes(issue.id));
-
-//     issuesToApply.forEach((issue) => {
-//       const pageIndex = issue.pageNumber - 1;
-//       if (pageIndex >= 0 && pageIndex < pages.length && issue.position) {
-//         const page = pages[pageIndex];
-//         const { width, height } = page.getSize();
-//         const rectX = (issue.position.left / 100) * width;
-//         const rectY = height - ((issue.position.top / 100) * height) - ((issue.position.height / 100) * height);
-//         page.drawRectangle({
-//           x: rectX, y: rectY, width: (issue.position.width / 100) * width, height: (issue.position.height / 100) * height,
-//           color: rgb(1, 1, 0), opacity: 0.4
-//         });
-//       }
-//     });
-//     return Buffer.from(await pdfDoc.save());
-//   } catch (error) { 
-//     console.error('Error generating corrected PDF:', error);
-//     return originalBuffer; 
-//   }
-// };
-
-// // NEW: Generate corrected document based on file type
-// export const generateCorrectedDocument = async (
-//   originalBuffer: Buffer,
-//   fileName: string,
-//   issues: Issue[],
-//   fixedIssueIds: string[],
-//   fileType?: string
-// ): Promise<{ buffer: Buffer; mimeType: string; fileName: string }> => {
-//   const fileExtension = getFileExtension(fileName);
-  
-//   if (['.docx', '.doc', '.txt'].includes(fileExtension)) {
-//     // Process Word/document files
-//     const processedDoc = await extractTextFromWordDocument(originalBuffer, fileName);
-//     const correctedResult = await generateCorrectedWordDocument(
-//       processedDoc.textContent,
-//       issues,
-//       fixedIssueIds
-//     );
-    
-//     const timestamp = new Date().toISOString().split('T')[0];
-//     return {
-//       buffer: Buffer.from(correctedResult.content, 'utf-8'),
-//       mimeType: correctedResult.fileType,
-//       fileName: `corrected_${fileName.replace(/\.[^/.]+$/, '')}_${timestamp}.html`
-//     };
-//   } else {
-//     // Process PDF files
-//     const correctedBuffer = await generateCorrectedPDF(originalBuffer, issues, fixedIssueIds);
-//     const timestamp = new Date().toISOString().split('T')[0];
-    
-//     return {
-//       buffer: correctedBuffer,
-//       mimeType: 'application/pdf',
-//       fileName: `corrected_${fileName.replace('.pdf', `_${timestamp}.pdf`)}`
-//     };
-//   }
-// };
-// import { GoogleGenerativeAI, Part } from "@google/generative-ai";
-// import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
-// import mammoth from 'mammoth';
-// import dotenv from "dotenv";
-// import path from 'path';
-
-// // Load environment variables
-// dotenv.config();
-
-// // DEBUG: Check if API key is loaded
-// console.log('🔧 [AI Service] Loading environment variables...');
-// console.log('🔧 [AI Service] GEMINI_API_KEY exists:', !!process.env.GEMINI_API_KEY);
-// console.log('🔧 [AI Service] GOOGLE_GEMINI_API_KEY exists:', !!process.env.GOOGLE_GEMINI_API_KEY);
-// console.log('🔧 [AI Service] NODE_ENV:', process.env.NODE_ENV);
-
-// // Get API key - check both possible names
-// const API_KEY = process.env.GEMINI_API_KEY || process.env.GOOGLE_GEMINI_API_KEY;
-// console.log('🔧 [AI Service] API_KEY loaded:', API_KEY ? `YES (${API_KEY.substring(0, 10)}...)` : 'NO');
-
-// // Initialize Gemini only if API key exists
-// let genAI: GoogleGenerativeAI | null = null;
-// try {
-//   if (API_KEY && API_KEY.trim() !== '') {
-//     genAI = new GoogleGenerativeAI(API_KEY);
-//     console.log('🔧 [AI Service] Gemini AI initialized successfully');
-//   } else {
-//     console.log('🔧 [AI Service] No API key found, will use mock mode');
-//   }
-// } catch (error: any) {
-//   console.error('🔧 [AI Service] Error initializing Gemini:', error.message);
-//   genAI = null;
-// }
-
-// export interface Issue {
-//   id: string;
-//   type: "Layout" | "Typography" | "Grammar" | "Accessibility" | "Content" | "Formatting" | "Spelling";
-//   severity: "Critical" | "Major" | "Minor";
-//   description: string;
-//   suggestion: string;
-//   location: string;
-//   pageNumber: number;
-//   position?: { top: number; left: number; width: number; height: number; };
-//   originalText?: string;
-//   correctedText?: string;
-// }
-
-// // Document processing interface
-// export interface ProcessedDocument {
-//   textContent: string;
-//   fileType: 'pdf' | 'docx' | 'doc' | 'txt' | 'image';
-//   fileName: string;
-//   pageCount?: number;
-//   wordCount?: number;
-//   metadata?: any;
-// }
-
-// const generateWithRetry = async (model: any, content: any, retries = 3) => {
-//   for (let i = 0; i < retries; i++) {
-//     try {
-//       return await model.generateContent(content);
-//     } catch (error: any) {
-//       console.log(`🔧 [AI Service] Gemini API attempt ${i + 1} failed:`, error.message);
-//       if ((error.message?.includes('503') || error.status === 503) && i < retries - 1) {
-//         const delay = Math.pow(2, i) * 1000;
-//         await new Promise(resolve => setTimeout(resolve, delay));
-//         continue;
-//       }
-//       throw error;
-//     }
-//   }
-// };
-
-// // Helper function to get file extension safely
-// const getFileExtension = (fileName: string): string => {
-//   try {
-//     const ext = path.extname(fileName).toLowerCase();
-//     if (ext) return ext;
-    
-//     const parts = fileName.split('.');
-//     return parts.length > 1 ? `.${parts[parts.length - 1].toLowerCase()}` : '';
-//   } catch (error) {
-//     const parts = fileName.split('.');
-//     return parts.length > 1 ? `.${parts[parts.length - 1].toLowerCase()}` : '';
-//   }
-// };
-
-// // Extract text from Word documents
-// export const extractTextFromWordDocument = async (fileBuffer: Buffer, fileName: string): Promise<ProcessedDocument> => {
-//   try {
-//     const fileExtension = getFileExtension(fileName);
-    
-//     if (fileExtension === '.docx') {
-//       const result = await mammoth.extractRawText({ buffer: fileBuffer });
-//       const text = result.value;
-      
-//       return {
-//         textContent: text,
-//         fileType: 'docx',
-//         fileName,
-//         wordCount: text.split(/\s+/).length,
-//         metadata: { paragraphs: text.split(/\n\s*\n/).length }
-//       };
-//     } 
-//     else if (fileExtension === '.doc') {
-//       const text = "[.DOC file detected]\n" +
-//                    "For full text analysis, please convert this .doc file to .docx format.\n" +
-//                    "You can do this by opening it in Microsoft Word and saving as .docx.";
-      
-//       return {
-//         textContent: text,
-//         fileType: 'doc',
-//         fileName,
-//         wordCount: 0
-//       };
-//     }
-//     else if (fileExtension === '.txt') {
-//       const text = fileBuffer.toString('utf-8');
-      
-//       return {
-//         textContent: text,
-//         fileType: 'txt',
-//         fileName,
-//         wordCount: text.split(/\s+/).length
-//       };
-//     }
-//     else {
-//       try {
-//         const text = fileBuffer.toString('utf-8', 0, Math.min(fileBuffer.length, 50000));
-//         return {
-//           textContent: text || 'Unknown file type',
-//           fileType: fileExtension.replace('.', '') as any || 'txt',
-//           fileName,
-//           wordCount: text.split(/\s+/).length
-//         };
-//       } catch {
-//         throw new Error(`Unsupported file type: ${fileExtension}`);
-//       }
-//     }
-//   } catch (error) {
-//     console.error('🔧 [AI Service] Error extracting text from Word document:', error);
-    
-//     return {
-//       textContent: 'Error extracting text. Please try a .docx, .txt, or PDF file.',
-//       fileType: 'txt',
-//       fileName,
-//       wordCount: 0
-//     };
-//   }
-// };
-
-// // Analyze any document type with format customization
-// export const analyzeDocumentWithAI = async (
-//   fileBuffer: Buffer,
-//   fileName: string,
-//   mimeType?: string,
-//   formatType?: string,
-//   formatRequirements?: string
-// ): Promise<{
-//   success: boolean;
-//   score: number;
-//   summary: string;
-//   issues: any[];
-//   processedContent?: ProcessedDocument;
-//   wordCount?: number;
-// }> => {
-//   console.log('🔧 [AI Service] analyzeDocumentWithAI called for:', fileName);
-//   console.log('🔧 [AI Service] Format type:', formatType);
-//   console.log('🔧 [AI Service] Has requirements:', !!formatRequirements);
-  
-//   try {
-//     const fileExtension = getFileExtension(fileName);
-//     const isWordFile = ['.docx', '.doc', '.txt'].includes(fileExtension);
-//     const isPDF = fileExtension === '.pdf' || (mimeType && mimeType.includes('pdf'));
-    
-//     // CHECK IF WE SHOULD USE MOCK DATA (no API key or Gemini not initialized)
-//     if (!API_KEY || !genAI) {
-//       console.log('🔧 [AI Service] Using MOCK mode (no API key or Gemini not initialized)');
-      
-//       if (isWordFile) {
-//         const processedDoc = await extractTextFromWordDocument(fileBuffer, fileName);
-//         const text = processedDoc.textContent;
-//         const sampleText = text.substring(0, 1000) || "Sample document content for analysis.";
-        
-//         return {
-//           success: true,
-//           score: 85,
-//           summary: "✅ Document analyzed successfully (Development Mode). Found several areas for improvement.",
-//           issues: [
-//             {
-//               id: 'mock-issue-1',
-//               type: 'Grammar',
-//               severity: 'Minor',
-//               description: 'Grammar issue found in the document',
-//               suggestion: 'Consider revising this sentence structure',
-//               location: 'Paragraph 1, Sentence 2',
-//               pageNumber: 1,
-//               originalText: sampleText.substring(0, 50) || "This is a sample text",
-//               correctedText: sampleText.substring(0, 50) + " (corrected)"
-//             },
-//             {
-//               id: 'mock-issue-2',
-//               type: 'Formatting',
-//               severity: 'Major',
-//               description: 'Inconsistent formatting detected',
-//               suggestion: 'Use consistent font sizes throughout',
-//               location: 'Section 2',
-//               pageNumber: 1,
-//               originalText: sampleText.substring(51, 100) || "Another sample text",
-//               correctedText: sampleText.substring(51, 100) + " (formatted)"
-//             }
-//           ],
-//           processedContent: processedDoc,
-//           wordCount: processedDoc.wordCount
-//         };
-//       } else if (isPDF) {
-//         return {
-//           success: true,
-//           score: 78,
-//           summary: "✅ PDF document analyzed (Development Mode). Working correctly!",
-//           issues: [
-//             {
-//               id: 'mock-pdf-issue-1',
-//               type: 'Layout',
-//               severity: 'Major',
-//               description: 'Layout issue in PDF document',
-//               suggestion: 'Adjust spacing between elements',
-//               location: 'Page 1, top section',
-//               pageNumber: 1,
-//               position: { top: 10, left: 10, width: 50, height: 5 }
-//             },
-//             {
-//               id: 'mock-pdf-issue-2',
-//               type: 'Typography',
-//               severity: 'Minor',
-//               description: 'Font consistency needed',
-//               suggestion: 'Use consistent font family',
-//               location: 'Page 1',
-//               pageNumber: 1,
-//               position: { top: 30, left: 20, width: 60, height: 8 }
-//             }
-//           ],
-//           wordCount: 0
-//         };
-//       } else {
-//         return {
-//           success: false,
-//           score: 0,
-//           summary: `Unsupported file type: ${fileExtension}. Please upload PDF, Word (.docx, .doc), or text files.`,
-//           issues: []
-//         };
-//       }
-//     }
-    
-//     // REAL AI ANALYSIS WITH API KEY
-//     console.log('🔧 [AI Service] Starting REAL AI analysis with Gemini');
-    
-//     const model = genAI.getGenerativeModel({ 
-//       model: "gemini-1.5-flash", // Changed to more available model
-//       generationConfig: { 
-//         responseMimeType: "application/json",
-//         temperature: 0.1
-//       }
-//     });
-
-//     let processedDoc: ProcessedDocument | undefined;
-//     let prompt = '';
-
-//     // DYNAMIC PROMPT BASED ON FORMAT TYPE
-//     if (formatType === 'custom' && formatRequirements) {
-//       // CUSTOM FORMAT ANALYSIS
-//       if (isWordFile) {
-//         processedDoc = await extractTextFromWordDocument(fileBuffer, fileName);
-        
-//         prompt = `Analyze the document "${fileName}" STRICTLY against these format requirements:
-
-// FORMAT REQUIREMENTS:
-// ${formatRequirements}
-
-// DOCUMENT CONTENT:
-// ${processedDoc.textContent.substring(0, 30000)}
-
-// CRITICAL INSTRUCTIONS:
-// 1. Analyze the document EXCLUSIVELY against the above format requirements.
-// 2. For each format violation, provide specific feedback.
-// 3. Also include general quality issues (grammar, spelling, etc.).
-// 4. Score the document based on 60% format compliance and 40% general quality.
-// 5. For Word/text documents, include originalText and correctedText for easy replacement.
-
-// Return JSON with the following structure:
-// {
-//   "score": number (0-100),
-//   "summary": "detailed summary including format compliance assessment",
-//   "issues": [{
-//     "type": "Formatting" | "Layout" | "Typography" | "Spelling" | "Grammar" | "Content" | "Accessibility" | "Structure",
-//     "severity": "Critical" | "Major" | "Minor",
-//     "description": "detailed description including format requirement violated",
-//     "suggestion": "specific suggestion for correction",
-//     "location": "approximate location in document",
-//     "pageNumber": 1,
-//     "originalText": "the exact text with the issue",
-//     "correctedText": "the corrected text",
-//     "position": { "top": 0, "left": 0, "width": 0, "height": 0 }
-//   }]
-// }`;
-//       } else if (isPDF) {
-//         // PDF with custom format
-//         prompt = `Analyze PDF document "${fileName}" STRICTLY against these format requirements:
-
-// FORMAT REQUIREMENTS:
-// ${formatRequirements}
-
-// CRITICAL INSTRUCTIONS:
-// 1. Analyze the PDF document EXCLUSIVELY against the above format requirements.
-// 2. For each format violation, provide specific feedback with position coordinates.
-// 3. Also include general quality issues (layout, typography, etc.).
-// 4. Score the document based on 60% format compliance and 40% general quality.
-// 5. For each issue, provide "position" {top, left, width, height} as 0-100 percentages.
-
-// Return JSON with the following structure:
-// {
-//   "score": number (0-100),
-//   "summary": "detailed summary including format compliance assessment",
-//   "issues": [{
-//     "type": "Formatting" | "Layout" | "Typography" | "Accessibility" | "Structure",
-//     "severity": "Critical" | "Major" | "Minor",
-//     "description": "detailed description including format requirement violated",
-//     "suggestion": "specific suggestion for correction",
-//     "pageNumber": 1,
-//     "position": { "top": 0, "left": 0, "width": 0, "height": 0 }
-//   }]
-// }`;
-//       }
-//     } else {
-//       // DEFAULT FORMAT ANALYSIS
-//       if (isWordFile) {
-//         processedDoc = await extractTextFromWordDocument(fileBuffer, fileName);
-        
-//         prompt = `Analyze the following text document "${fileName}":
-        
-//         DOCUMENT CONTENT:
-//         ${processedDoc.textContent.substring(0, 30000)}
-        
-//         Analyze this document for:
-//         1. Grammar and spelling errors
-//         2. Formatting and structure issues
-//         3. Content clarity and coherence
-//         4. Accessibility considerations
-        
-//         Return JSON with the following structure:
-//         {
-//           "score": number (0-100),
-//           "summary": "overall summary of document quality",
-//           "issues": [{
-//             "type": "Spelling" | "Grammar" | "Formatting" | "Content" | "Accessibility" | "Structure",
-//             "severity": "Critical" | "Major" | "Minor",
-//             "description": "detailed description of the issue",
-//             "suggestion": "specific suggestion for correction",
-//             "location": "approximate location in document (e.g., 'Paragraph 3, Sentence 2')",
-//             "pageNumber": 1,
-//             "originalText": "the exact text with the issue (important for replacement)",
-//             "correctedText": "the corrected text (important for replacement)"
-//           }]
-//         }
-        
-//         IMPORTANT: For each issue, include originalText and correctedText for easy text replacement.`;
-//       } else if (isPDF) {
-//         prompt = `Analyze document "${fileName}". Return JSON. 
-//           Identify specific errors and provide "position" {top, left, width, height} as 0-100 percentages.
-//           JSON structure: { "score": 0, "summary": "", "issues": [{ "type": "Spelling", "severity": "Critical", "description": "", "suggestion": "", "pageNumber": 1, "position": { "top": 0, "left": 0, "width": 0, "height": 0 } }] }`;
-//       } else {
-//         return {
-//           success: false,
-//           score: 0,
-//           summary: `Unsupported file type: ${fileExtension}. Please upload PDF, Word (.docx, .doc), or text files.`,
-//           issues: []
-//         };
-//       }
-//     }
-
-//     // EXECUTE ANALYSIS
-//     console.log('🔧 [AI Service] Sending request to Gemini API...');
-    
-//     if (isWordFile) {
-//       processedDoc = processedDoc || await extractTextFromWordDocument(fileBuffer, fileName);
-      
-//       const result = await generateWithRetry(model, prompt);
-//       const response = await result!.response;
-//       const responseText = response.text();
-      
-//       console.log('🔧 [AI Service] Gemini response received');
-      
-//       try {
-//         const parsedData = JSON.parse(responseText);
-        
-//         const issuesWithIds = parsedData.issues.map((issue: any, index: number) => ({
-//           ...issue,
-//           id: `issue-${Date.now()}-${index}`,
-//           pageNumber: issue.pageNumber || 1
-//         }));
-
-//         console.log('🔧 [AI Service] Gemini analysis completed successfully');
-        
-//         return { 
-//           success: true, 
-//           score: parsedData.score ?? 0,
-//           summary: parsedData.summary || "",
-//           issues: issuesWithIds,
-//           processedContent: processedDoc,
-//           wordCount: processedDoc.wordCount
-//         };
-//       } catch (parseError) {
-//         console.error('🔧 [AI Service] Error parsing Gemini response:', parseError);
-//         console.error('🔧 [AI Service] Response text:', responseText.substring(0, 500));
-        
-//         // Fallback to mock data if parsing fails
-//         const processedDoc = await extractTextFromWordDocument(fileBuffer, fileName);
-//         return {
-//           success: true,
-//           score: 75,
-//           summary: "Document analyzed (AI response parsing issue, but processing completed)",
-//           issues: [],
-//           processedContent: processedDoc,
-//           wordCount: processedDoc.wordCount
-//         };
-//       }
-//     } else if (isPDF) {
-//       const pdfPart: Part = {
-//         inlineData: { data: fileBuffer.toString("base64"), mimeType: "application/pdf" }
-//       };
-
-//       const result = await generateWithRetry(model, [prompt, pdfPart]);
-//       const response = await result!.response;
-//       const responseText = response.text();
-      
-//       console.log('🔧 [AI Service] Gemini PDF response received');
-      
-//       try {
-//         const parsedData = JSON.parse(responseText);
-        
-//         const issuesWithIds = parsedData.issues.map((issue: any, index: number) => ({
-//           ...issue,
-//           id: `issue-${Date.now()}-${index}`
-//         }));
-
-//         console.log('🔧 [AI Service] Gemini PDF analysis completed successfully');
-        
-//         return { 
-//           success: true, 
-//           score: parsedData.score ?? 0,
-//           summary: parsedData.summary || "",
-//           issues: issuesWithIds,
-//           wordCount: 0
-//         };
-//       } catch (parseError) {
-//         console.error('🔧 [AI Service] Error parsing Gemini PDF response:', parseError);
-        
-//         // Fallback to mock data for PDF
-//         return {
-//           success: true,
-//           score: 70,
-//           summary: "PDF analyzed (AI response parsing issue, but processing completed)",
-//           issues: [
-//             {
-//               id: 'pdf-fallback-1',
-//               type: 'Layout',
-//               severity: 'Major',
-//               description: 'PDF analysis completed',
-//               suggestion: 'Review document formatting',
-//               location: 'Document',
-//               pageNumber: 1,
-//               position: { top: 20, left: 20, width: 60, height: 10 }
-//             }
-//           ],
-//           wordCount: 0
-//         };
-//       }
-//     } else {
-//       return {
-//         success: false,
-//         score: 0,
-//         summary: `Unsupported file type: ${fileExtension}. Please upload PDF, Word (.docx, .doc), or text files.`,
-//         issues: []
-//       };
-//     }
-//   } catch (error: any) {
-//     console.error('🔧 [AI Service] AI Analysis Error:', error.message);
-//     console.error('🔧 [AI Service] Error stack:', error.stack);
-    
-//     // Return mock data as fallback instead of failing
-//     const fileExtension = getFileExtension(fileName);
-//     const isWordFile = ['.docx', '.doc', '.txt'].includes(fileExtension);
-    
-//     if (isWordFile) {
-//       try {
-//         const processedDoc = await extractTextFromWordDocument(fileBuffer, fileName);
-//         return {
-//           success: true,
-//           score: 65,
-//           summary: "Document analyzed (AI service temporarily unavailable, using fallback)",
-//           issues: [
-//             {
-//               id: 'fallback-issue-1',
-//               type: 'General',
-//               severity: 'Minor',
-//               description: 'Analysis completed with fallback method',
-//               suggestion: 'Check back later for AI-powered analysis',
-//               location: 'Document',
-//               pageNumber: 1,
-//               originalText: 'Sample text',
-//               correctedText: 'Sample text corrected'
-//             }
-//           ],
-//           processedContent: processedDoc,
-//           wordCount: processedDoc.wordCount
-//         };
-//       } catch {
-//         // If even extraction fails
-//         return {
-//           success: true,
-//           score: 60,
-//           summary: "Basic analysis completed",
-//           issues: [],
-//           wordCount: 0
-//         };
-//       }
-//     } else {
-//       return {
-//         success: true,
-//         score: 60,
-//         summary: "Document processed (AI service issue, but file uploaded successfully)",
-//         issues: [],
-//         wordCount: 0
-//       };
-//     }
-//   }
-// };
-
-// // Generate corrected Word document
-// export const generateCorrectedWordDocument = async (
-//   originalContent: string, 
-//   issues: Issue[], 
-//   fixedIssueIds: string[]
-// ): Promise<{ content: string; fileType: string }> => {
-//   try {
-//     let correctedContent = originalContent;
-//     const issuesToApply = issues.filter(issue => fixedIssueIds.includes(issue.id));
-
-//     for (const issue of issuesToApply.reverse()) {
-//       if (issue.originalText && issue.correctedText) {
-//         correctedContent = correctedContent.replace(issue.originalText, issue.correctedText);
-//       }
-//     }
-
-//     const correctedDoc = `
-//       <!DOCTYPE html>
-//       <html>
-//       <head>
-//         <meta charset="UTF-8">
-//         <title>Corrected Document</title>
-//         <style>
-//           body { font-family: Arial, sans-serif; line-height: 1.6; margin: 40px; }
-//           .correction { background-color: #e8f5e8; padding: 2px; border-left: 3px solid #4CAF50; }
-//           .summary { background-color: #f5f5f5; padding: 15px; margin: 20px 0; border-radius: 5px; }
-//         </style>
-//       </head>
-//       <body>
-//         <h1>Corrected Document</h1>
-//         <div class="summary">
-//           <strong>Applied Corrections:</strong> ${issuesToApply.length} issues fixed
-//         </div>
-//         <div id="content">
-//           ${correctedContent.split('\n').map(para => `<p>${para}</p>`).join('')}
-//         </div>
-//         ${issuesToApply.length > 0 ? `
-//         <div class="summary">
-//           <h3>Correction Details:</h3>
-//           <ul>
-//             ${issuesToApply.map(issue => `
-//               <li><strong>${issue.type}</strong> (${issue.severity}): ${issue.description} → ${issue.suggestion}</li>
-//             `).join('')}
-//           </ul>
-//         </div>
-//         ` : ''}
-//       </body>
-//       </html>
-//     `;
-
-//     return {
-//       content: correctedDoc,
-//       fileType: 'text/html'
-//     };
-//   } catch (error) {
-//     console.error('🔧 [AI Service] Error generating corrected Word document:', error);
-//     return {
-//       content: originalContent,
-//       fileType: 'text/html'
-//     };
-//   }
-// };
-
-// // Generate corrected PDF
-// export const generateCorrectedPDF = async (
-//   originalBuffer: Buffer, 
-//   issues: Issue[], 
-//   fixedIssueIds: string[]
-// ): Promise<Buffer> => {
-//   try {
-//     const pdfDoc = await PDFDocument.load(originalBuffer);
-//     const pages = pdfDoc.getPages();
-//     const issuesToApply = issues.filter(issue => fixedIssueIds.includes(issue.id));
-
-//     issuesToApply.forEach((issue) => {
-//       const pageIndex = issue.pageNumber - 1;
-//       if (pageIndex >= 0 && pageIndex < pages.length && issue.position) {
-//         const page = pages[pageIndex];
-//         const { width, height } = page.getSize();
-//         const rectX = (issue.position.left / 100) * width;
-//         const rectY = height - ((issue.position.top / 100) * height) - ((issue.position.height / 100) * height);
-//         page.drawRectangle({
-//           x: rectX, y: rectY, width: (issue.position.width / 100) * width, height: (issue.position.height / 100) * height,
-//           color: rgb(1, 1, 0), opacity: 0.4
-//         });
-//       }
-//     });
-//     return Buffer.from(await pdfDoc.save());
-//   } catch (error) { 
-//     console.error('🔧 [AI Service] Error generating corrected PDF:', error);
-//     return originalBuffer; 
-//   }
-// };
-
-// // Generate corrected document based on file type
-// export const generateCorrectedDocument = async (
-//   originalBuffer: Buffer,
-//   fileName: string,
-//   issues: Issue[],
-//   fixedIssueIds: string[],
-//   fileType?: string
-// ): Promise<{ buffer: Buffer; mimeType: string; fileName: string }> => {
-//   const fileExtension = getFileExtension(fileName);
-  
-//   if (['.docx', '.doc', '.txt'].includes(fileExtension)) {
-//     const processedDoc = await extractTextFromWordDocument(originalBuffer, fileName);
-//     const correctedResult = await generateCorrectedWordDocument(
-//       processedDoc.textContent,
-//       issues,
-//       fixedIssueIds
-//     );
-    
-//     const timestamp = new Date().toISOString().split('T')[0];
-//     return {
-//       buffer: Buffer.from(correctedResult.content, 'utf-8'),
-//       mimeType: correctedResult.fileType,
-//       fileName: `corrected_${fileName.replace(/\.[^/.]+$/, '')}_${timestamp}.html`
-//     };
-//   } else {
-//     const correctedBuffer = await generateCorrectedPDF(originalBuffer, issues, fixedIssueIds);
-//     const timestamp = new Date().toISOString().split('T')[0];
-    
-//     return {
-//       buffer: correctedBuffer,
-//       mimeType: 'application/pdf',
-//       fileName: `corrected_${fileName.replace('.pdf', `_${timestamp}.pdf`)}`
-//     };
-//   }
-// };
-// import { GoogleGenerativeAI } from "@google/generative-ai";
-// import { PDFDocument, rgb } from 'pdf-lib';
-// import mammoth from 'mammoth';
-// import dotenv from "dotenv";
-// import path from 'path';
-
-// dotenv.config();
-
-// const API_KEY = process.env.GEMINI_API_KEY || process.env.GOOGLE_GEMINI_API_KEY;
-
-// let genAI: GoogleGenerativeAI | null = null;
-// if (API_KEY && API_KEY.trim() !== '') {
-//   genAI = new GoogleGenerativeAI(API_KEY);
-// }
-
-// export interface Issue {
-//   id: string;
-//   type: "Layout" | "Typography" | "Grammar" | "Accessibility" | "Content" | "Formatting" | "Spelling" | "Structure";
-//   severity: "Critical" | "Major" | "Minor";
-//   description: string;
-//   suggestion: string;
-//   location: string;
-//   pageNumber: number;
-//   position?: { top: number; left: number; width: number; height: number; };
-//   originalText?: string;
-//   correctedText?: string;
-// }
-
-// export interface ProcessedDocument {
-//   textContent: string;
-//   fileType: 'pdf' | 'docx' | 'doc' | 'txt' | 'image';
-//   fileName: string;
-//   pageCount?: number;
-//   wordCount?: number;
-//   metadata?: any;
-// }
-
-// const generateWithRetry = async (model: any, content: any[], retries = 3) => {
-//   for (let i = 0; i < retries; i++) {
-//     try {
-//       return await model.generateContent(content);
-//     } catch (error: any) {
-//       if ((error.status === 503 || error.status === 429) && i < retries - 1) {
-//         const delay = Math.pow(2, i) * 1000;
-//         await new Promise(resolve => setTimeout(resolve, delay));
-//         continue;
-//       }
-//       throw error;
-//     }
-//   }
-// };
-
-// export const extractTextFromWordDocument = async (fileBuffer: Buffer, fileName: string): Promise<ProcessedDocument> => {
-//   const ext = path.extname(fileName).toLowerCase();
-//   try {
-//     if (ext === '.docx') {
-//       const result = await mammoth.extractRawText({ buffer: fileBuffer });
-//       return {
-//         textContent: result.value,
-//         fileType: 'docx',
-//         fileName,
-//         wordCount: result.value.split(/\s+/).length
-//       };
-//     } 
-//     const text = fileBuffer.toString('utf-8');
-//     return {
-//       textContent: text,
-//       fileType: (ext.replace('.', '') as any) || 'txt',
-//       fileName,
-//       wordCount: text.split(/\s+/).length
-//     };
-//   } catch (error) {
-//     return { textContent: 'Extraction failed', fileType: 'txt', fileName, wordCount: 0 };
-//   }
-// };
-// export const analyzeDocumentWithAI = async (
-//   fileBuffer: Buffer,
-//   fileName: string,
-//   formatRequirements?: string,
-//   templateBuffer?: Buffer 
-// ) => {
-//   try {
-//     if (!genAI) throw new Error("AI Service not initialized.");
-
-//     const model = genAI.getGenerativeModel({ 
-//       model: "gemini-1.5-flash", 
-//       generationConfig: { 
-//         responseMimeType: "application/json", 
-//         temperature: 0.1 // Slight temperature helps with visual differentiation
-//       } 
-//     });
-
-//     const promptText = `
-//       # AUDITOR ROLE: STRICT COMPLIANCE
-//       You are a specialized formatting auditor. Your mission is to verify if the document matches the [USER RULES]. 
-//       If the document does not match the font/layout, you MUST flag it before mentioning typos.
-
-//       # [USER RULES] - MANDATORY
-//       ${formatRequirements}
-
-//       # AUDIT STEPS (DO NOT SKIP):
-//       1. VISUAL FONT IDENTIFICATION: Look at the text shapes. If the user requires "CALIBRI" and the text is NOT Calibri, generate a CRITICAL "Typography" issue immediately.
-//       2. MARGINS: Check the white space. If it doesn't match the rules, flag it as "Layout".
-//       3. GRAMMAR LIMIT: You are FORBIDDEN from reporting more than 5 grammar/spelling errors. Choose only the most critical ones.
-//       4. SUMMARY: Start with "PROTOCOL AUDIT: FAIL" if the font/layout rules are broken.
-
-//       # JSON FORMAT
-//       {
-//         "score": number,
-//         "summary": "Must detail if the Font and Margins met the Active Protocol.",
-//         "issues": [
-//           {
-//             "id": "rule-violation-1",
-//             "type": "Typography" | "Layout" | "Grammar",
-//             "severity": "Critical",
-//             "description": "Ex: FONT MISMATCH. Required: Calibri. Detected: Serif/Other.",
-//             "suggestion": "Change font to Calibri.",
-//             "pageNumber": 1,
-//             "position": { "top": 5, "left": 10, "width": 80, "height": 10 }
-//           }
-//         ]
-//       }
-//     `;
-
-//     const contentParts: any[] = [
-//       { text: promptText },
-//       { inlineData: { data: fileBuffer.toString("base64"), mimeType: "application/pdf" } }
-//     ];
-
-//     if (templateBuffer) {
-//       contentParts.push({ inlineData: { data: templateBuffer.toString("base64"), mimeType: "application/pdf" } });
-//     }
-
-//     const result = await generateWithRetry(model, contentParts);
-//     let responseText = result!.response.text().replace(/```json|```/g, "").trim();
-    
-//     const parsed = JSON.parse(responseText);
-
-//     // --- HARD LOGIC OVERRIDE ---
-//     // If we specifically requested Calibri and the AI gave us 30 issues but none are "Typography", 
-//     // it means the AI is hallucinating compliance. 
-//     // We can manually filter or add a warning here if needed.
-    
-//     return parsed;
-
-//   } catch (error: any) {
-//     console.error("AI Analysis Error:", error);
-//     throw error;
-//   }
-// };
-
-// export const generateCorrectedPDF = async (originalBuffer: Buffer, issues: Issue[], fixedIssueIds: string[]): Promise<Buffer> => {
-//   try {
-//     const pdfDoc = await PDFDocument.load(originalBuffer);
-//     const pages = pdfDoc.getPages();
-//     const issuesToApply = issues.filter(issue => fixedIssueIds.includes(issue.id));
-
-//     issuesToApply.forEach((issue) => {
-//       const pageIndex = (issue.pageNumber || 1) - 1;
-//       if (pageIndex >= 0 && pageIndex < pages.length && issue.position) {
-//         const page = pages[pageIndex];
-//         const { width, height } = page.getSize();
-//         const rectX = (issue.position.left / 100) * width;
-//         const rectY = height - ((issue.position.top / 100) * height) - ((issue.position.height / 100) * height);
-        
-//         page.drawRectangle({
-//           x: rectX, y: rectY, 
-//           width: (issue.position.width / 100) * width, 
-//           height: (issue.position.height / 100) * height,
-//           color: rgb(1, 1, 0), opacity: 0.4
-//         });
-//       }
-//     });
-//     return Buffer.from(await pdfDoc.save());
-//   } catch (error) { return originalBuffer; }
-// };
-
-// export const generateCorrectedDocument = async (
-//   originalBuffer: Buffer,
-//   fileName: string,
-//   issues: Issue[],
-//   fixedIssueIds: string[]
-// ): Promise<{ buffer: Buffer; mimeType: string; fileName: string }> => {
-//   const correctedBuffer = await generateCorrectedPDF(originalBuffer, issues, fixedIssueIds);
-//   return {
-//     buffer: correctedBuffer,
-//     mimeType: 'application/pdf',
-//     fileName: `corrected_${fileName}`
-//   };
-// };
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { PDFDocument, rgb } from 'pdf-lib';
 import mammoth from 'mammoth';
+const pdfParse = require('pdf-parse');
 import dotenv from "dotenv";
 import path from 'path';
 
@@ -2136,6 +56,12 @@ export interface AnalysisResult {
   pdfStructure?: any;
   structureAnalysis?: any;
   visualAnalysisPerformed?: boolean;
+  metadata?: {
+    company?: string;
+    date?: string;
+    type?: string;
+  };
+  correctedContent?: string; // OCR or AI-corrected content
 }
 
 const generateWithRetry = async (model: any, content: any[], retries = 3) => {
@@ -2156,36 +82,90 @@ const generateWithRetry = async (model: any, content: any[], retries = 3) => {
 // Helper function to extract requirements
 const extractFormatRequirements = (formatRequirements?: string) => {
   if (!formatRequirements) return {};
-  
+
   const requirements: any = {};
-  
+
   // Extract font with better matching
-  const fontMatch = formatRequirements.match(/font:\s*([^\n,;]+)/i) || 
-                   formatRequirements.match(/(Times\s*New\s*Roman|Arial|Calibri|Helvetica|Georgia|Verdana|Cambria|Garamond)/i);
+  const fontMatch = formatRequirements.match(/font:\s*([^\n,;]+)/i) ||
+    formatRequirements.match(/(Times\s*New\s*Roman|Arial|Calibri|Helvetica|Georgia|Verdana|Cambria|Garamond)/i);
   if (fontMatch) requirements.font = fontMatch[1].trim();
-  
+
   // Extract spacing
   const spacingMatch = formatRequirements.match(/spacing:\s*([^\n,;]+)/i) ||
-                      formatRequirements.match(/line[-\s]*spacing:\s*([^\n,;]+)/i) ||
-                      formatRequirements.match(/(single|1\.5|double|2\.0|\d+(\.\d+)?)/i);
+    formatRequirements.match(/line[-\s]*spacing:\s*([^\n,;]+)/i) ||
+    formatRequirements.match(/(single|1\.5|double|2\.0|\d+(\.\d+)?)/i);
   if (spacingMatch) requirements.spacing = spacingMatch[1].trim();
-  
+
   // Extract margins
   const marginMatch = formatRequirements.match(/margins?:\s*([^\n,;]+)/i) ||
-                     formatRequirements.match(/(\d+(\s*inch)?\s*(all|top|bottom|left|right))/i);
+    formatRequirements.match(/(\d+(\s*inch)?\s*(all|top|bottom|left|right))/i);
   if (marginMatch) requirements.margins = marginMatch[1].trim();
-  
+
   // Extract alignment
   const alignmentMatch = formatRequirements.match(/alignment:\s*([^\n,;]+)/i) ||
-                        formatRequirements.match(/(left|right|center|justified|centre)/i);
+    formatRequirements.match(/(left|right|center|justified|centre)/i);
   if (alignmentMatch) requirements.alignment = alignmentMatch[1].trim();
-  
+
   // Extract font size
   const fontSizeMatch = formatRequirements.match(/font[-\s]*size:\s*([^\n,;]+)/i) ||
-                       formatRequirements.match(/(\d+)\s*(pt|px)/i);
+    formatRequirements.match(/(\d+)\s*(pt|px)/i);
   if (fontSizeMatch) requirements.fontSize = fontSizeMatch[1].trim();
-  
+
   return requirements;
+};
+
+// NEW: Predefined Template Requirements
+const getTemplateRequirements = (formatType: string): string => {
+  const templates: Record<string, string> = {
+    'professional': `
+      FORMAT: Professional Business Report
+      FONT: Arial, Helvetica, or Calibri (Clean sans-serif)
+      SPACING: 1.15 or 1.5 line spacing
+      MARGINS: 1 inch (2.54 cm) all around
+      ALIGNMENT: Left aligned or Justified
+      TONE: Formal, objective, concise
+      STRUCTURE: Executive Summary, Key Findings, Data Analysis, Recommendations
+    `,
+    'academic': `
+      FORMAT: Academic Paper (APA Style)
+      FONT: Times New Roman (12pt)
+      SPACING: Double spacing (2.0)
+      MARGINS: 1 inch all around
+      ALIGNMENT: Left aligned (ragged right)
+      TONE: Scholarly, neutral, third-person
+      STRUCTURE: Abstract, Introduction, Literature Review, Methodology, Results, Discussion, References
+      CITATIONS: Strict APA 7th Edition format
+    `,
+    'legal': `
+      FORMAT: Legal Document / Contract
+      FONT: Times New Roman or Arial (12pt)
+      SPACING: Single or 1.5 spacing
+      MARGINS: 1 inch standard, numbered lines if applicable
+      ALIGNMENT: Justified
+      TONE: Precise, unambiguous, formal legalese
+      STRUCTURE: Recitals, Definitions, Clauses, Signatures
+    `,
+    'creative': `
+      FORMAT: Creative Writing / Portfolio
+      FONT: Reader-friendly extraction (e.g., Garamond, Open Sans)
+      SPACING: 1.5 spacing
+      MARGINS: Moderate
+      ALIGNMENT: Left aligned
+      TONE: Engaging, narrative, expressive
+      STRUCTURE: Narrative flow, clearly defined sections
+    `,
+    'resume': `
+      FORMAT: Professional Resume / CV
+      FONT: Calibri, Arial, or Helvetica
+      SPACING: Single (1.0) with clear section breaks
+      MARGINS: 0.5 to 1 inch
+      ALIGNMENT: Left aligned
+      TONE: Action-oriented, professional, quantified achievements
+      STRUCTURE: Contact Info, Summary, Experience, Education, Skills
+    `
+  };
+
+  return templates[formatType.toLowerCase()] || '';
 };
 
 export const extractTextFromWordDocument = async (fileBuffer: Buffer, fileName: string): Promise<ProcessedDocument> => {
@@ -2199,7 +179,7 @@ export const extractTextFromWordDocument = async (fileBuffer: Buffer, fileName: 
         fileName,
         wordCount: result.value.split(/\s+/).length
       };
-    } 
+    }
     const text = fileBuffer.toString('utf-8');
     return {
       textContent: text,
@@ -2209,6 +189,34 @@ export const extractTextFromWordDocument = async (fileBuffer: Buffer, fileName: 
     };
   } catch (error) {
     return { textContent: 'Extraction failed', fileType: 'txt', fileName, wordCount: 0 };
+  }
+};
+
+// NEW: Extract text from PDF using pdf-parse
+// NEW: Extract text from PDF using pdf-parse with improved error handling
+export const extractTextFromPDF = async (fileBuffer: Buffer, fileName: string): Promise<ProcessedDocument> => {
+  try {
+    const data = await pdfParse(fileBuffer);
+    return {
+      textContent: data.text || '', // Ensure it's not undefined
+      fileType: 'pdf',
+      fileName,
+      pageCount: data.numpages || 1,
+      wordCount: (data.text || '').split(/\s+/).length,
+      metadata: data.info || {}
+    };
+  } catch (error: any) {
+    console.error(`❌ PDF text extraction error for ${fileName}:`, error.message);
+
+    // Fallback: If pdf-parse fails, try to return a meaningful error or empty content
+    // so the analysis can still proceed with visual analysis (if applicable)
+    return {
+      textContent: '', // Return empty string instead of error message so AI knows it's empty
+      fileType: 'pdf',
+      fileName,
+      wordCount: 0,
+      metadata: { error: 'Text extraction failed' }
+    };
   }
 };
 
@@ -2226,7 +234,7 @@ const getOppositeFont = (font: string): string => {
 
 // Helper function to calculate font compliance
 const calculateFontCompliance = (issues: Issue[], requiredFont: string): number => {
-  const hasFontMismatch = issues.some(issue => 
+  const hasFontMismatch = issues.some(issue =>
     issue.type === 'Typography' && issue.description.includes('FONT MISMATCH')
   );
   return hasFontMismatch ? 0 : 100;
@@ -2249,7 +257,7 @@ const calculateVariance = (arr: number[]): number => {
 // Helper function to calculate score from issues
 const calculateScoreFromIssues = (issues: Issue[]): number => {
   if (issues.length === 0) return 100;
-  
+
   let totalSeverity = 0;
   issues.forEach(issue => {
     switch (issue.severity) {
@@ -2259,7 +267,7 @@ const calculateScoreFromIssues = (issues: Issue[]): number => {
       default: totalSeverity += 5;
     }
   });
-  
+
   const maxPossible = issues.length * 10;
   const score = Math.max(0, 100 - (totalSeverity / maxPossible) * 100);
   return Math.round(score);
@@ -2267,27 +275,37 @@ const calculateScoreFromIssues = (issues: Issue[]): number => {
 
 // Helper function to create fallback response
 const createFallbackResponse = (
-  fileName: string, 
-  pdfStructure: any, 
+  fileName: string,
+  pdfStructure: any,
   fileMimeType: string,
   formatType: string,
-  requirements?: any
+  requirements?: any,
+  processedContent?: string,
+  errorMessage?: string // Added parameter
 ): AnalysisResult => {
   const isCustomFormat = formatType === 'custom';
   const basicIssues: Issue[] = [];
-  
+
+  const isQuotaError = errorMessage?.includes('429') || errorMessage?.includes('Quota') || errorMessage?.includes('Too Many Requests');
+
   // Add a warning about analysis limitations
   basicIssues.push({
     id: "analysis-fallback",
     type: "Structure",
-    severity: "Major",
-    description: "Full AI analysis unavailable. Using fallback mode.",
-    suggestion: "Ensure Gemini API is properly configured for detailed formatting analysis",
+    severity: "Critical",
+    description: isQuotaError
+      ? "Analysis Service Busy (Quota Exceeded)"
+      : `Analysis Failed: ${errorMessage || "Full AI analysis unavailable. Using fallback mode."}`,
+    suggestion: isQuotaError
+      ? "The AI service is currently receiving too many requests. Please try again in a few minutes."
+      : "Check input file or try again later.",
     location: "System",
     pageNumber: 1,
-    position: { top: 0, left: 0, width: 100, height: 5 }
+    position: { top: 0, left: 0, width: 100, height: 5 },
+    originalText: "Analysis failed",
+    correctedText: "Analysis failed"
   });
-  
+
   // Add custom format warning if applicable
   if (isCustomFormat && requirements?.font) {
     basicIssues.push({
@@ -2299,20 +317,26 @@ const createFallbackResponse = (
       location: "Entire document",
       pageNumber: 1,
       position: { top: 0, left: 0, width: 100, height: 100 },
-      customFormatIssue: true
+      customFormatIssue: true,
+      originalText: "Font unavailable",
+      correctedText: requirements.font
     });
   }
-  
+
   const fallbackScore = calculateScoreFromIssues(basicIssues);
-  
+
   return {
     success: true,
     score: fallbackScore,
-    summary: `${isCustomFormat ? 'Custom Format Check (Limited): ' : 'Basic analysis: '}Service temporarily unavailable`,
+    summary: isQuotaError
+      ? "⚠️ AI Service Busy: We could not process your document at this time due to high traffic. Please try again later."
+      : `${isCustomFormat ? 'Custom Format Check (Limited): ' : 'Basic analysis: '}Service temporarily unavailable`,
     issues: basicIssues,
     analysisType: isCustomFormat ? "custom_format_fallback" : "fallback",
     geminiModel: "gemini-2.5-flash",
-    visualAnalysisPerformed: false
+    processedContent: processedContent || "",
+    visualAnalysisPerformed: false,
+    correctedContent: processedContent || "Analysis failed. Manual editing required."
   };
 };
 
@@ -2325,6 +349,11 @@ export const analyzeDocumentWithAI = async (
   formatRequirements?: string,
   templateFile?: any
 ): Promise<AnalysisResult> => {
+  let extractedText = '';
+  let pdfTextContent = '';
+  let isPDF = false;
+  let fileBufferForAnalysis = fileBuffer;
+
   try {
     if (!genAI) throw new Error("AI Service not initialized.");
 
@@ -2336,37 +365,61 @@ export const analyzeDocumentWithAI = async (
     console.log(`   - Template File: ${templateFile ? 'Provided' : 'Not provided'}`);
     console.log(`   - Requirements: ${formatRequirements || 'None'}`);
 
-    // Use Gemini 1.5 Flash for VISUAL PDF analysis (NOT 2.5-flash which is text-only)
-    const model = genAI.getGenerativeModel({ 
-      model: "gemini-2.5-flash",  // MUST use 1.5 for visual analysis
-      generationConfig: { 
-        responseMimeType: "application/json", 
+    // Use Gemini 2.5 Flash for VISUAL PDF analysis
+    const model = genAI.getGenerativeModel({
+      model: "gemini-2.5-flash",
+      generationConfig: {
+        responseMimeType: "application/json",
         temperature: 0.1,
         topP: 0.8,
         topK: 40
-      } 
+      }
     });
 
     // Extract text for analysis
-    let extractedText = '';
-    const isPDF = fileMimeType.includes('pdf') || fileName.toLowerCase().endsWith('.pdf');
-    
+    isPDF = fileMimeType.includes('pdf') || fileName.toLowerCase().endsWith('.pdf');
+    const isWord = fileMimeType.includes('word') ||
+      fileMimeType.includes('officedocument.wordprocessingml.document') ||
+      fileName.toLowerCase().endsWith('.docx');
+
     if (isPDF) {
-      // For PDFs, we'll send the visual file to Gemini
+      // For PDFs, extract text for the Edit Text tab
+      const pdfData = await extractTextFromPDF(fileBuffer, fileName);
+      pdfTextContent = pdfData.textContent;
+      // For visual analysis, we'll send the visual file to Gemini
       extractedText = "PDF visual analysis enabled - Gemini will analyze the document directly";
+    } else if (isWord) {
+      // For Word files, extract text using mammoth
+      const processedWord = await extractTextFromWordDocument(fileBuffer, fileName);
+      extractedText = processedWord.textContent;
     } else {
-      // For non-PDF files, extract text directly
+      // For non-PDF/non-Word files, extract text directly
       extractedText = fileBuffer.toString('utf-8', 0, 10000);
     }
 
+    // Fallback: If text extraction failed but it's a PDF, we rely 100% on visual analysis
+    if (isPDF && (!pdfTextContent || pdfTextContent.length < 50)) {
+      console.log("⚠️ PDF text extraction yielded little/no text. Relying on visual analysis.");
+      pdfTextContent = "Text extraction unavailable. Visual analysis required.";
+    }
+
     // Determine which requirements to use based on format type
-    const actualRequirements = formatType === 'custom' ? (formatRequirements || '') : '';
+    const templateReqs = getTemplateRequirements(formatType);
+    const actualRequirements = formatType === 'custom'
+      ? (formatRequirements || '')
+      : (templateReqs || formatRequirements || '');
+
     const requirements = extractFormatRequirements(actualRequirements);
-    const isCustomFormat = formatType === 'custom';
-    
+    const isCustomFormat = formatType === 'custom' || !!templateReqs; // Treat templates as custom enforcement
+
+    // Check for large document to avoid token limits
+    const textLength = isPDF ? (pdfTextContent?.length || 0) : (extractedText?.length || 0);
+    const isLargeDocument = textLength > 25000; // Approx 5-6k tokens
+    console.log(`📏 Document Length: ${textLength} chars. Large Document Mode: ${isLargeDocument}`);
+
     // CRITICAL: Enhanced prompt for custom format enforcement
     const promptText = `
-      # DOCUMENT FORMATTING AUDITOR - ${isCustomFormat ? '⛔ CUSTOM FORMAT ENFORCEMENT ⛔' : 'Standard Analysis'}
+      # DOCUMENT FORMATTING AUDITOR - ${isCustomFormat ? `⛔ ${formatType.toUpperCase()} FORMAT ENFORCEMENT ⛔` : 'Standard Analysis'}
       
       ## YOUR MISSION:
       You are a STRICT formatting compliance auditor. Your PRIMARY task is to verify if the document matches ALL user requirements.
@@ -2374,10 +427,11 @@ export const analyzeDocumentWithAI = async (
       ## DOCUMENT INFO:
       - File: ${fileName}
       - Format Type: ${formatType}
-      ${isCustomFormat ? '- ⚠️ CUSTOM FORMAT: ENFORCE ALL REQUIREMENTS ⚠️' : '- Standard Format: Basic checks'}
+      ${isCustomFormat ? '- ⚠️ STRICT FORMAT: ENFORCE ALL REQUIREMENTS ⚠️' : '- Standard Format: Basic checks'}
+      ${isLargeDocument ? '- ⚠️ LARGE DOCUMENT DETECTED: SKIP FULL TEXT REWRITE ⚠️' : ''}
       
-      ## ${isCustomFormat ? '⛔⛔⛔ MANDATORY CUSTOM REQUIREMENTS ⛔⛔⛔' : 'Formatting Guidelines'}
-      ${actualRequirements || 'Standard academic formatting'}
+      ## ${isCustomFormat ? '⛔⛔⛔ MANDATORY REQUIREMENTS ⛔⛔⛔' : 'Formatting Guidelines'}
+      ${actualRequirements || 'Standard professional formatting'}
       
       ${Object.keys(requirements).length > 0 ? `
       ## 📋 PARSED REQUIREMENTS - MUST ENFORCE:
@@ -2401,9 +455,10 @@ export const analyzeDocumentWithAI = async (
           "suggestion": "Change ALL text to ${requirements.font} font family",
           "location": "Entire document",
           "pageNumber": 1,
-          "position": { "top": 0, "left": 0, "width": 100, "height": 100 }
+          "position": { "top": 10, "left": 10, "width": 80, "height": 5 } 
         }
         \`\`\`
+        (NOTE: Return a tight bounding box around the first instance of the wrong font)
       ` : ''}
       
       ${requirements.margins ? `
@@ -2427,25 +482,29 @@ export const analyzeDocumentWithAI = async (
       - **SEVERITY**: Medium
       ` : ''}
       
-      ## 📊 SCORING SYSTEM:
+      ## 📊 SCORING SYSTEM (STRICT):
       - Base Score: 100
-      ${requirements.font ? '- Font mismatch: -30 points' : ''}
-      ${requirements.margins ? '- Margin violation: -15 points' : ''}
-      ${requirements.spacing ? '- Spacing violation: -10 points' : ''}
-      ${requirements.alignment ? '- Alignment violation: -5 points' : ''}
-      - Each grammar/spelling issue: -2 points (limit to 5 most critical)
+      ${requirements.font ? '- Font mismatch: -40 points (CRITICAL)' : ''}
+      ${requirements.margins ? '- Margin violation: -20 points (MAJOR)' : ''}
+      ${requirements.spacing ? '- Spacing violation: -20 points (MAJOR)' : ''}
+      ${requirements.alignment ? '- Alignment violation: -10 points (MINOR)' : ''}
+      - Grammar/Spelling/Punctuation: -5 points EACH (NO LIMIT)
       
       ## 🎯 PRIORITY ORDER:
       1. ${requirements.font ? `FONT (${requirements.font}) - CHECK FIRST` : 'Formatting issues'}
       2. ${requirements.margins ? `MARGINS (${requirements.margins})` : 'Layout issues'}
       3. ${requirements.spacing ? `SPACING (${requirements.spacing})` : 'Spacing consistency'}
-      4. ${requirements.alignment ? `ALIGNMENT (${requirements.alignment})` : 'Text alignment'}
-      5. Grammar/Spelling (only 5 most critical)
+      4. Grammar/Spelling (MUST BE INCLUDED even if format matches)
+      
+      ## ⚠️ CRITICAL INSTRUCTIONS:
+      1. **LIST EVERY ISSUE**: Do not summarize. If there are 50 grammar errors, list all 50 unique issues.
+      3. **MERGE ISSUES**: Your final "issues" array must contain BOTH Custom Format violations AND standard Grammar/Spelling mistakes. Do not ignore standard errors.
+      ${!isLargeDocument ? `3. **FULL CORRECTION**: You must provide the "correctedContent" field. This must be the COMPLETE document text with ALL corrections applied (Grammar + Format). Do not include markdown formatting, just the plain text.` : `3. **SKIP FULL CORRECTION**: Document is too large. Do NOT provide "correctedContent". Return null or empty string for that field.`}
       
       ## 📝 SUMMARY FORMAT:
-      ${isCustomFormat ? 
+      ${isCustomFormat ?
         `Start with "CUSTOM FORMAT AUDIT: " followed by PASS/FAIL/WARNING. 
-        Example: "CUSTOM FORMAT AUDIT: FAIL - Font mismatch. Document uses Calibri but requirement is Times New Roman."` : 
+        Example: "CUSTOM FORMAT AUDIT: FAIL - Font mismatch. Document uses Calibri but requirement is Times New Roman."` :
         'Standard analysis summary.'
       }
       
@@ -2464,58 +523,90 @@ export const analyzeDocumentWithAI = async (
             "pageNumber": number,
             "position": { "top": number, "left": number, "width": number, "height": number }
           }
-        ]
+        ],
+        "metadata": { ... },
+        "correctedContent": ${!isLargeDocument ? '"FULL CORRECTED TEXT HERE (Mandatory)"' : 'null'}
       }
       
-      ## ⚠️ IMPORTANT:
+      - **ISOLATE THE MISTAKE**: If a word is misspelled, box ONLY that word.
       - For custom format: FONT CHECK IS MANDATORY if specified
-      - Include "position" data for visual overlay
-      - If no custom requirements, focus on general formatting and topology
-      - Return VALID JSON only
+      
+      ## 🏷️ METADATA EXTRACTION:
+      Identify and extract the following if available:
+      - **Company/Entity Name**: Who is this document about/from?
+      - **Document Date**: Explicit or implied date (YYYY-MM-DD or text)
+      - **Document Type**: e.g., "Financial Report", "Contract", "Resume", "Memo"
+      
+      - Return VALID JSON only.
+      ${isPDF ? '"extractedContent": "FULL TEXT OF THE DOCUMENT (If visual analysis was required, transcribe the text here)",' : ''}
     `;
 
     const contentParts: any[] = [
       { text: promptText }
     ];
 
+    if (!isPDF && extractedText) {
+      contentParts.push({ text: `DOCUMENT CONTENT:\n${extractedText}` });
+    }
+
     // For PDFs, send as visual data to Gemini 1.5 (CRITICAL for font detection)
     if (isPDF) {
       contentParts.push({
         inlineData: {
           data: fileBuffer.toString("base64"),
-          mimeType: "application/pdf",
-          fileDisplayName: fileName
+          mimeType: "application/pdf"
         }
       });
     }
 
     // If template file is provided
     if (templateFile?.buffer) {
-      contentParts.push({
-        inlineData: {
-          data: templateFile.buffer.toString("base64"),
-          mimeType: templateFile.mimetype || "application/pdf",
-          fileDisplayName: "template.pdf"
+      const isTemplateWord = templateFile.mimetype.includes('word') ||
+        templateFile.mimetype.includes('officedocument') ||
+        templateFile.originalname.toLowerCase().endsWith('.docx');
+      const isTemplatePDF = templateFile.mimetype.includes('pdf');
+
+      let templateText = "";
+
+      try {
+        if (isTemplateWord) {
+          const processed = await extractTextFromWordDocument(templateFile.buffer, templateFile.originalname);
+          templateText = processed.textContent;
+        } else if (isTemplatePDF) {
+          // For templates, text is usually sufficient and cheaper/safer than visual
+          const processed = await extractTextFromPDF(templateFile.buffer, templateFile.originalname);
+          templateText = processed.textContent;
+        } else {
+          // Try plain text
+          templateText = templateFile.buffer.toString('utf-8');
         }
-      });
+
+        if (templateText && templateText.length > 0) {
+          contentParts.push({ text: `CUSTOM TEMPLATE CONTENT (Follow this structure/style):\n${templateText}` });
+          console.log("✅ Added custom template text to prompt");
+        }
+      } catch (err) {
+        console.error("❌ Failed to extract text from template:", err);
+        // Fallback or ignore
+      }
     }
 
-    console.log(`🔍 [AI Service] Analyzing with Gemini 1.5 Flash: ${fileName}`);
+    console.log(`🔍 [AI Service] Analyzing with Gemini 2.5 Flash: ${fileName}`);
     console.log(`📋 Custom Format: ${isCustomFormat}, Requirements: ${Object.keys(requirements).length}`);
-    
+
     const result = await generateWithRetry(model, contentParts);
     let responseText = result!.response.text().replace(/```json|```/g, "").trim();
-    
+
     // Parse response
     let parsed;
     try {
       parsed = JSON.parse(responseText);
-    } catch (parseError) {
+    } catch (parseError: any) {
       console.error("Failed to parse Gemini response:", parseError);
       console.log("Raw response:", responseText.substring(0, 500));
-      return createFallbackResponse(fileName, null, fileMimeType, formatType, requirements);
+      return createFallbackResponse(fileName, null, fileMimeType, formatType, extractFormatRequirements(formatRequirements), isPDF ? pdfTextContent : extractedText, parseError.message);
     }
-    
+
     // Process issues with proper typing
     const enhancedIssues: Issue[] = (parsed.issues || []).map((issue: any, index: number) => ({
       ...issue,
@@ -2528,41 +619,52 @@ export const analyzeDocumentWithAI = async (
       // Add custom format flag - this is now allowed since we added customFormatIssue to the Issue interface
       customFormatIssue: isCustomFormat && (issue.type === 'Typography' || issue.type === 'Margin' || issue.type === 'Spacing' || issue.type === 'Alignment')
     }));
-    
+
     // Calculate score if not provided
     let calculatedScore = parsed.score || calculateScoreFromIssues(enhancedIssues);
-    
+
     // Apply custom format penalties
     if (isCustomFormat && requirements.font) {
-      const hasFontMismatch = enhancedIssues.some(issue => 
+      const hasFontMismatch = enhancedIssues.some(issue =>
         issue.type === 'Typography' && issue.description.includes('FONT MISMATCH')
       );
       if (hasFontMismatch) {
         calculatedScore = Math.max(0, calculatedScore - 30);
       }
     }
-    
+
+    // Check if we need to use AI-extracted text (OCR)
+    if (isPDF && parsed.extractedContent && (!pdfTextContent || pdfTextContent.length < 100 || pdfTextContent.includes("visual analysis required"))) {
+      console.log("📝 PDF OCR Fallback: Using AI-extracted text from Gemini");
+      pdfTextContent = parsed.extractedContent;
+    }
+
     return {
       success: true,
       score: calculatedScore,
       summary: parsed.summary || `${isCustomFormat ? 'Custom Format Audit: ' : ''}Analysis completed`,
       issues: enhancedIssues,
-      processedContent: extractedText,
+      processedContent: isPDF ? pdfTextContent : extractedText,
       analysisType: isCustomFormat ? "custom_format_enforced" : "topology_focused",
       geminiModel: "gemini-2.5-flash",
-      pdfStructure: null, // Simplified for now
+      pdfStructure: null,
       structureAnalysis: isCustomFormat ? {
         fontCompliance: requirements.font ? calculateFontCompliance(enhancedIssues, requirements.font) : 0,
         marginCompliance: requirements.margins ? 75 : 0,
         spacingCompliance: requirements.spacing ? 80 : 0,
         overallCustomFormatScore: calculatedScore
       } : undefined,
-      visualAnalysisPerformed: isPDF
+      visualAnalysisPerformed: isPDF,
+      metadata: {
+        ...(parsed.metadata || {}),
+        isLargeDocument: isLargeDocument
+      },
+      correctedContent: parsed.correctedContent || (isLargeDocument ? null : extractedText) // Return null if large (to trigger UI warning) or original if small but missing
     };
 
   } catch (error: any) {
     console.error("Gemini Analysis Error:", error);
-    return createFallbackResponse(fileName, null, fileMimeType, formatType, extractFormatRequirements(formatRequirements));
+    return createFallbackResponse(fileName, null, fileMimeType, formatType, extractFormatRequirements(formatRequirements), isPDF ? pdfTextContent : extractedText, error.message);
   }
 };
 
@@ -2591,12 +693,12 @@ export const generateCorrectedPDF = async (originalBuffer: Buffer, issues: Issue
         const { width, height } = page.getSize();
         const rectX = (issue.position.left / 100) * width;
         const rectY = height - ((issue.position.top / 100) * height) - ((issue.position.height / 100) * height);
-        
+
         page.drawRectangle({
-          x: rectX, y: rectY, 
-          width: (issue.position.width / 100) * width, 
+          x: rectX, y: rectY,
+          width: (issue.position.width / 100) * width,
           height: (issue.position.height / 100) * height,
-          color: getIssueColor(issue.type), 
+          color: getIssueColor(issue.type),
           opacity: 0.3,
           borderColor: rgb(0, 0, 0),
           borderWidth: 1
@@ -2604,9 +706,9 @@ export const generateCorrectedPDF = async (originalBuffer: Buffer, issues: Issue
       }
     });
     return Buffer.from(await pdfDoc.save());
-  } catch (error) { 
+  } catch (error) {
     console.error("PDF correction failed:", error);
-    return originalBuffer; 
+    return originalBuffer;
   }
 };
 
@@ -2622,4 +724,46 @@ export const generateCorrectedDocument = async (
     mimeType: 'application/pdf',
     fileName: `corrected_${fileName}`
   };
+};
+
+export const generateCorrectedText = async (
+  content: string,
+  issues: Issue[]
+): Promise<string> => {
+  try {
+    if (!genAI) throw new Error("AI Service not initialized");
+
+    // If no issues, return original
+    if (!issues || issues.length === 0) return content;
+
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+    const prompt = `
+      You are an expert Document Editor.
+      
+      TASK:
+      Rewrite the following document content to fix the identified issues.
+      
+      ISSUES TO FIX:
+      ${issues.map((i, idx) => `${idx + 1}. [${i.type}] ${i.description}: ${i.suggestion}`).join('\n')}
+      
+      INSTRUCTIONS:
+      1. Apply all fixes described above.
+      2. Fix any other obvious grammar/spelling errors.
+      3. Maintain the original structure and tone as much as possible.
+      4. RETURN ONLY THE CORRECTED TEXT. Do not add markdown blocks or comments.
+      
+      DOCUMENT CONTENT:
+      """
+      ${content}
+      """
+    `;
+
+    const result = await model.generateContent(prompt);
+    return result.response.text();
+
+  } catch (error) {
+    console.error("Text correction error:", error);
+    return content; // Fallback to original
+  }
 };

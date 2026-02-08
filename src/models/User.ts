@@ -15,38 +15,38 @@ export interface IUser extends Document {
   lastLogin?: Date;
   createdAt?: Date;
   updatedAt?: Date;
-  
+
   comparePassword(candidatePassword: string): Promise<boolean>;
   toObject(): any; // Add this to fix toObject error
 }
 
 const UserSchema: Schema = new Schema({
-  email: { 
-    type: String, 
-    required: [true, "Email is required"], 
+  email: {
+    type: String,
+    required: [true, "Email is required"],
     unique: true,
     lowercase: true,
     trim: true,
     match: [/^\S+@\S+\.\S+$/, 'Please enter a valid email']
   },
-  password: { 
-    type: String, 
+  password: {
+    type: String,
     required: [true, "Password is required"],
     minlength: [6, "Password must be at least 6 characters"],
     select: false // Don't include password by default in queries
   },
-  name: { 
-    type: String, 
+  name: {
+    type: String,
     required: [true, "Name is required"],
-    trim: true 
+    trim: true
   },
-  collegeName: { 
-    type: String, 
-    required: [true, "College name is required"] 
+  collegeName: {
+    type: String,
+    required: false
   },
-  role: { 
-    type: String, 
-    required: true, 
+  role: {
+    type: String,
+    required: true,
     enum: ['student', 'teacher', 'admin'],
     default: 'student'
   },
@@ -60,7 +60,7 @@ const UserSchema: Schema = new Schema({
 });
 
 // Add comparePassword method
-UserSchema.methods.comparePassword = async function(candidatePassword: string): Promise<boolean> {
+UserSchema.methods.comparePassword = async function (candidatePassword: string): Promise<boolean> {
   return await bcrypt.compare(candidatePassword, this.password);
 };
 

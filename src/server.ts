@@ -1,80 +1,21 @@
-// backend/src/server.ts - Add auth routes
-// import express from "express";
-// import cors from "cors";
-// import swaggerUi from "swagger-ui-express";
-// import swaggerJsdoc from "swagger-jsdoc";
-// import connectDB from "./config/db";
-// import analysisRoutes from "./routes/analysis";
-// import authRoutes from "./routes/Auth"; // Add this
+import dotenv from "dotenv";
 
-// const app = express();
-// const PORT = 5000;
+import path from "path";
 
-// app.use(cors({
-//   origin: ['http://localhost:3000'], // Your React app
-//   credentials: true
-// }));
-// app.use(express.json());
+console.log("🔍 CWD:", process.cwd());
+console.log("🔍 Attempting to load .env from:", path.resolve(process.cwd(), '.env'));
 
-// connectDB();
+const resultLocal = dotenv.config({ path: '.env.local' });
+if (resultLocal.error) console.log("⚠️ Failed to load .env.local");
+else console.log("✅ Loaded .env.local");
 
-// // Swagger setup
-// const swaggerOptions = {
-//   definition: {
-//     openapi: '3.0.0',
-//     info: {
-//       title: 'AutoFlow API',
-//       version: '1.0.0',
-//       description: 'Document Analysis System API',
-//     },
-//     servers: [
-//       {
-//         url: 'http://localhost:5000',
-//         description: 'Development server',
-//       },
-//     ],
-//     components: {
-//       securitySchemes: {
-//         bearerAuth: {
-//           type: 'http',
-//           scheme: 'bearer',
-//           bearerFormat: 'JWT'
-//         }
-//       }
-//     }
-//   },
-//   apis: ['./src/routes/*.ts'],
-// };
+const result = dotenv.config();
+if (result.error) console.log("⚠️ Failed to load .env");
+else console.log("✅ Loaded .env");
 
-// const swaggerSpec = swaggerJsdoc(swaggerOptions);
-// app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+console.log("🔑 Loaded Keys:", Object.keys(process.env).filter(k => k.includes('GEMINI')));
+console.log("🔑 GEMINI_API_KEY available:", !!process.env.GEMINI_API_KEY);
 
-// // Routes
-// app.get("/", (_req, res) => {
-//   res.send(`
-//     <div style="text-align:center;padding:50px">
-//       <h1>AutoFlow API 🚀</h1>
-//       <p><a href="/api-docs">📚 Swagger UI</a></p>
-//       <p>Available endpoints:</p>
-//       <ul style="list-style:none;padding:0">
-//         <li>POST /auth/register - Register user</li>
-//         <li>POST /auth/login - Login user</li>
-//         <li>GET /auth/me - Get profile (requires token)</li>
-//         <li>GET /analysis - Get all analyses</li>
-//         <li>POST /analysis - Create analysis</li>
-//       </ul>
-//     </div>
-//   `);
-// });
-
-// // Register routes
-// app.use("/auth", authRoutes); // Add this
-// app.use("/analysis", analysisRoutes);
-
-// app.listen(PORT, () => {
-//   console.log(`✅ Server running at http://localhost:${PORT}`);
-//   console.log(`📚 Swagger UI: http://localhost:${PORT}/api-docs`);
-// });
 import express from "express";
 import cors from "cors";
 import swaggerUi from "swagger-ui-express";
@@ -82,6 +23,7 @@ import swaggerJsdoc from "swagger-jsdoc";
 import connectDB from "./config/db";
 import analysisRoutes from "./routes/analysis";
 import authRoutes from "./routes/Auth";
+import chatRoutes from "./routes/chat";
 
 const app = express();
 const PORT = 5000;
@@ -131,8 +73,8 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Health check endpoint
 app.get("/health", (_req, res) => {
-  res.json({ 
-    status: "OK", 
+  res.json({
+    status: "OK",
     timestamp: new Date().toISOString(),
     uploadLimit: "100MB",
     message: "AutoFlow API is running"
@@ -183,11 +125,12 @@ app.get("/", (_req, res) => {
 // Register routes
 app.use("/auth", authRoutes);
 app.use("/analysis", analysisRoutes);
+app.use("/api/chat", chatRoutes);
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Server error:', err.stack);
-  
+
   // Handle multer/file upload errors
   if (err.code === 'LIMIT_FILE_SIZE') {
     return res.status(413).json({
@@ -197,7 +140,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
       received: `${(err.limit / 1024 / 1024).toFixed(2)}MB requested`
     });
   }
-  
+
   if (err.name === 'MulterError') {
     return res.status(400).json({
       success: false,
@@ -205,7 +148,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
       message: err.message
     });
   }
-  
+
   // Default error handler
   res.status(500).json({
     success: false,
@@ -224,10 +167,13 @@ app.use((req: express.Request, res: express.Response) => {
   });
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`✅ Server running at http://localhost:${PORT}`);
   console.log(`📚 Swagger UI: http://localhost:${PORT}/api-docs`);
   console.log(`🩺 Health check: http://localhost:${PORT}/health`);
   console.log(`📁 Upload limit: 100MB`);
   console.log(`🌐 CORS enabled for: http://localhost:3000`);
 });
+
+// Increase timeout to 10 minutes for long AI analysis
+server.setTimeout(600000);
