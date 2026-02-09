@@ -24,6 +24,7 @@ import connectDB from "./config/db";
 import analysisRoutes from "./routes/analysis";
 import authRoutes from "./routes/Auth";
 import chatRoutes from "./routes/chat";
+import workspaceRoutes from "./routes/workspace";
 
 const app = express();
 const PORT = 5000;
@@ -126,6 +127,7 @@ app.get("/", (_req, res) => {
 app.use("/auth", authRoutes);
 app.use("/analysis", analysisRoutes);
 app.use("/api/chat", chatRoutes);
+app.use("/workspace", workspaceRoutes);
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

@@ -73,8 +73,16 @@ router.post("/upload-file", (req: Request, res: Response) => {
       const formatType = req.body.formatType || 'default';
       const formatRequirements = req.body.formatRequirements || '';
       const fileName = req.body.fileName || documentFile.originalname;
+      const userId = req.body.userId; // Extract userId
 
-      console.log(`🔧 [Route] Analyzing ${fileName} with format: ${formatType}`);
+      console.log(`🔧 [Route] Analyzing ${fileName} with format: ${formatType} for user: '${userId}'`);
+
+      if (!userId) {
+        console.warn("⚠️ [UPLOAD] WARNING: No userId provided in request body! Analysis will not be linked to a user.");
+      } else {
+        console.log(`✅ [UPLOAD] userId '${userId}' received successfully.`);
+      }
+
       console.log("DEBUG: formatType received:", req.body.formatType);
       console.log("DEBUG: templateFile exists:", !!files?.templateFile?.[0]);
       // 3. Call AI Service (Passes all 6 required arguments)
@@ -128,6 +136,7 @@ router.post("/upload-file", (req: Request, res: Response) => {
       // 4. Create and Save Analysis Model
       const analysis = new Analysis({
         analysisId: `analysis-${uuidv4()}`,
+        userId: userId, // Save userId
         fileName: fileName,
         fileSize: documentFile.size,
         fileType: documentFile.mimetype,
@@ -207,6 +216,29 @@ router.post("/export-corrected", async (req: Request, res: Response) => {
     res.send(correctedDoc.buffer);
   } catch (err: any) {
     res.status(500).json({ success: false, error: "Export failed", details: err.message });
+  }
+});
+
+// =========== GET ALL ANALYSES FOR USER ===========
+router.get("/", async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.query;
+    console.log(`🔍 [GET /analysis] Fetching history for userId: '${userId}'`);
+
+    if (!userId) {
+      console.warn("⚠️ [GET /analysis] Missing userId query parameter");
+      return res.status(400).json({ success: false, error: "Missing userId query parameter" });
+    }
+
+    const analyses = await Analysis.find({ userId })
+      .sort({ analyzedAt: -1 }) // Newest first
+      .select('-fileData'); // Exclude heavy file data if it exists
+
+    console.log(`✅ [GET /analysis] Found ${analyses.length} records for user '${userId}'`);
+    res.json({ success: true, data: analyses });
+  } catch (err: any) {
+    console.error("❌ [GET /analysis] Error:", err.message);
+    res.status(500).json({ success: false, error: "Failed to fetch history", details: err.message });
   }
 });
 

@@ -62,6 +62,14 @@ export interface AnalysisResult {
     type?: string;
   };
   correctedContent?: string; // OCR or AI-corrected content
+  images?: Array<{
+    id: string;
+    description: string;
+    page: number;
+    position: { top: number; left: number; width: number; height: number };
+    beforeText?: string;
+    afterText?: string;
+  }>;
 }
 
 const generateWithRetry = async (model: any, content: any[], retries = 3) => {
@@ -197,26 +205,77 @@ export const extractTextFromWordDocument = async (fileBuffer: Buffer, fileName: 
 export const extractTextFromPDF = async (fileBuffer: Buffer, fileName: string): Promise<ProcessedDocument> => {
   try {
     const data = await pdfParse(fileBuffer);
+    let text = data.text || '';
+
+    // If text is empty or very short, it might be an image-based PDF. Try Gemini OCR.
+    if (text.trim().length < 50) {
+      console.log(`⚠️ PDF text extraction yielded low content for ${fileName}. Attempting Gemini OCR...`);
+      try {
+        if (!genAI) throw new Error("Generative AI not initialized");
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+        const result = await model.generateContent([
+          {
+            inlineData: {
+              data: fileBuffer.toString("base64"),
+              mimeType: "application/pdf",
+            },
+          },
+          "Extract all text from this PDF document exactly as it appears. Do not summarize or interpret. If there are tables, preserve the structure as much as possible."
+        ]);
+        const ocrText = result.response.text();
+        if (ocrText && ocrText.length > text.length) {
+          text = ocrText;
+          console.log(`✅ Gemini OCR successful for ${fileName}`);
+        }
+      } catch (ocrError) {
+        console.error(`❌ Gemini OCR failed for ${fileName}:`, ocrError);
+        // Fallback to original empty text if OCR fails
+      }
+    }
+
     return {
-      textContent: data.text || '', // Ensure it's not undefined
+      textContent: text,
       fileType: 'pdf',
       fileName,
       pageCount: data.numpages || 1,
-      wordCount: (data.text || '').split(/\s+/).length,
+      wordCount: text.split(/\s+/).length,
       metadata: data.info || {}
     };
   } catch (error: any) {
     console.error(`❌ PDF text extraction error for ${fileName}:`, error.message);
 
-    // Fallback: If pdf-parse fails, try to return a meaningful error or empty content
-    // so the analysis can still proceed with visual analysis (if applicable)
-    return {
-      textContent: '', // Return empty string instead of error message so AI knows it's empty
-      fileType: 'pdf',
-      fileName,
-      wordCount: 0,
-      metadata: { error: 'Text extraction failed' }
-    };
+    // Fallback: If pdf-parse fails completely, try Gemini OCR as a last resort
+    try {
+      console.log(`⚠️ pdf-parse failed. Attempting Gemini OCR fallback for ${fileName}...`);
+      if (!genAI) throw new Error("Generative AI not initialized");
+      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+      const result = await model.generateContent([
+        {
+          inlineData: {
+            data: fileBuffer.toString("base64"),
+            mimeType: "application/pdf",
+          },
+        },
+        "Extract all text from this PDF document exactly as it appears. Do not summarize or interpret."
+      ]);
+      const ocrText = result.response.text();
+      return {
+        textContent: ocrText,
+        fileType: 'pdf',
+        fileName,
+        wordCount: ocrText.split(/\s+/).length,
+        metadata: { ocr: true }
+      };
+    } catch (ocrError) {
+      console.error(`❌ Gemini OCR fallback failed for ${fileName}:`, ocrError);
+      return {
+        textContent: '',
+        fileType: 'pdf',
+        fileName,
+        wordCount: 0,
+        metadata: { error: 'Text extraction failed' }
+      };
+    }
   }
 };
 
@@ -258,19 +317,18 @@ const calculateVariance = (arr: number[]): number => {
 const calculateScoreFromIssues = (issues: Issue[]): number => {
   if (issues.length === 0) return 100;
 
-  let totalSeverity = 0;
+  let deduction = 0;
   issues.forEach(issue => {
     switch (issue.severity) {
-      case 'Critical': totalSeverity += 10; break;
-      case 'Major': totalSeverity += 7; break;
-      case 'Minor': totalSeverity += 3; break;
-      default: totalSeverity += 5;
+      case 'Critical': deduction += 15; break; // Increased penalty
+      case 'Major': deduction += 10; break;
+      case 'Minor': deduction += 5; break;
+      default: deduction += 5;
     }
   });
 
-  const maxPossible = issues.length * 10;
-  const score = Math.max(0, 100 - (totalSeverity / maxPossible) * 100);
-  return Math.round(score);
+  // Ensure score doesn't go below 0
+  return Math.max(0, 100 - deduction);
 };
 
 // Helper function to create fallback response
@@ -398,9 +456,12 @@ export const analyzeDocumentWithAI = async (
     }
 
     // Fallback: If text extraction failed but it's a PDF, we rely 100% on visual analysis
+    // Fallback: If text extraction failed but it's a PDF, we rely 100% on visual analysis
     if (isPDF && (!pdfTextContent || pdfTextContent.length < 50)) {
       console.log("⚠️ PDF text extraction yielded little/no text. Relying on visual analysis.");
-      pdfTextContent = "Text extraction unavailable. Visual analysis required.";
+      // Do NOT overwrite pdfTextContent with an error message, as it confuses the AI.
+      // Instead, we leave it as is (empty or short) and let the prompt handle it.
+      if (!pdfTextContent) pdfTextContent = "";
     }
 
     // Determine which requirements to use based on format type
@@ -498,8 +559,13 @@ export const analyzeDocumentWithAI = async (
       
       ## ⚠️ CRITICAL INSTRUCTIONS:
       1. **LIST EVERY ISSUE**: Do not summarize. If there are 50 grammar errors, list all 50 unique issues.
-      3. **MERGE ISSUES**: Your final "issues" array must contain BOTH Custom Format violations AND standard Grammar/Spelling mistakes. Do not ignore standard errors.
-      ${!isLargeDocument ? `3. **FULL CORRECTION**: You must provide the "correctedContent" field. This must be the COMPLETE document text with ALL corrections applied (Grammar + Format). Do not include markdown formatting, just the plain text.` : `3. **SKIP FULL CORRECTION**: Document is too large. Do NOT provide "correctedContent". Return null or empty string for that field.`}
+      2. **MERGE ISSUES**: Your final "issues" array must contain BOTH Custom Format violations AND standard Grammar/Spelling mistakes. Do not ignore standard errors.
+      3. **IMAGE PRESERVATION**: If the document contains images, charts, diagrams, or visual elements:
+         - Identify each image and its approximate location
+         - In the correctedContent, insert a placeholder marker: [IMAGE: Brief description | Position: top/center/bottom | Page: N]
+         - Preserve the logical flow of text around images
+         - Do NOT describe images as part of the main text - use only markers
+      ${!isLargeDocument ? `4. **FULL CORRECTION**: You must provide the "correctedContent" field. This must be the COMPLETE document text with ALL corrections applied (Grammar + Format + Image markers). Do not include markdown formatting, just the plain text with [IMAGE:...] markers where images appear.` : `4. **SKIP FULL CORRECTION**: Document is too large. Do NOT provide "correctedContent". Return null or empty string for that field.`}
       
       ## 📝 SUMMARY FORMAT:
       ${isCustomFormat ?
@@ -524,8 +590,18 @@ export const analyzeDocumentWithAI = async (
             "position": { "top": number, "left": number, "width": number, "height": number }
           }
         ],
+        "images": [
+          {
+            "id": "img-1",
+            "description": "Brief description of what the image shows",
+            "page": number,
+            "position": { "top": number, "left": number, "width": number, "height": number },
+            "beforeText": "Text snippet before image (optional)",
+            "afterText": "Text snippet after image (optional)"
+          }
+        ],
         "metadata": { ... },
-        "correctedContent": ${!isLargeDocument ? '"FULL CORRECTED TEXT HERE (Mandatory)"' : 'null'}
+        "correctedContent": ${!isLargeDocument ? '"FULL CORRECTED TEXT HERE with [IMAGE:...] markers (Mandatory)"' : 'null'}
       }
       
       - **ISOLATE THE MISTAKE**: If a word is misspelled, box ONLY that word.
@@ -659,7 +735,8 @@ export const analyzeDocumentWithAI = async (
         ...(parsed.metadata || {}),
         isLargeDocument: isLargeDocument
       },
-      correctedContent: parsed.correctedContent || (isLargeDocument ? null : extractedText) // Return null if large (to trigger UI warning) or original if small but missing
+      correctedContent: parsed.correctedContent || (isLargeDocument ? null : extractedText), // Return null if large (to trigger UI warning) or original if small but missing
+      images: parsed.images || [] // Include detected images from AI response
     };
 
   } catch (error: any) {
