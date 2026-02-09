@@ -255,6 +255,103 @@ router.get("/id/:id", async (req: Request, res: Response) => {
   }
 });
 
+// DELETE endpoint to remove an analysis by ID (URL parameter)
+router.delete('/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    // Ensure id is a string, not an array
+    const analysisId = Array.isArray(id) ? id[0] : id;
+
+    if (!analysisId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Analysis ID is required'
+      });
+    }
+
+    console.log('🗑️ Deleting analysis by ID:', analysisId);
+
+    // Check if the ID is a valid MongoDB ObjectId
+    const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(analysisId);
+
+    let query;
+    if (isValidObjectId) {
+      // If it's a valid ObjectId, search both _id and analysisId
+      query = { $or: [{ _id: analysisId }, { analysisId: analysisId }] };
+    } else {
+      // If it's not a valid ObjectId (e.g., "analysis-xxx"), only search analysisId
+      query = { analysisId: analysisId };
+    }
+
+    // Find and delete the analysis
+    const result = await Analysis.deleteOne(query);
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Analysis not found'
+      });
+    }
+
+    console.log('✅ Analysis deleted successfully');
+
+    res.json({
+      success: true,
+      message: 'Analysis deleted successfully'
+    });
+  } catch (error: any) {
+    console.error('Error deleting analysis:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// DELETE endpoint to remove an analysis (legacy - using query params)
+router.delete('/', async (req: Request, res: Response) => {
+  try {
+    const { userId, fileName, uploadDate } = req.query;
+
+    if (!userId || !fileName || !uploadDate) {
+      return res.status(400).json({
+        success: false,
+        error: 'userId, fileName, and uploadDate are required'
+      });
+    }
+
+    console.log('🗑️ Deleting analysis - userId:', userId, 'fileName:', fileName, 'uploadDate:', uploadDate);
+
+    // Find and delete the analysis matching all criteria
+    const result = await Analysis.deleteOne({
+      userId,
+      fileName,
+      analyzedAt: uploadDate
+    });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Analysis not found'
+      });
+    }
+
+    console.log('✅ Analysis deleted successfully');
+
+    res.json({
+      success: true,
+      message: 'Analysis deleted successfully'
+    });
+  } catch (error: any) {
+    console.error('Error deleting analysis:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // ... (Other stats and list routes remain largely the same, just ensure they use .fileType from the model)
 
 export default router;
