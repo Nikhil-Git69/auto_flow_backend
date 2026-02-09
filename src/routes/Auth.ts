@@ -3,6 +3,7 @@ import { Router, Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import User, { IUser } from "../models/User";
 import bcrypt from "bcryptjs"; // Add this import
+import { notifyUserSignup } from '../services/webhookService';
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-this-in-production';
@@ -67,6 +68,14 @@ router.post("/register", async (req: Request, res: Response) => {
       updatedAt: user.updatedAt
     };
 
+    // Send webhook notification for new user (non-blocking)
+    notifyUserSignup({
+      userId: user._id.toString(),
+      userName: user.name,
+      userEmail: user.email,
+      signupAt: new Date()
+    }).catch(err => console.error('Webhook error:', err));
+
     res.status(201).json({
       success: true,
       message: "User registered successfully",
@@ -78,7 +87,7 @@ router.post("/register", async (req: Request, res: Response) => {
 
   } catch (err: any) {
     console.error("Registration error:", err);
-    
+
     if (err.name === 'ValidationError') {
       return res.status(400).json({
         success: false,
@@ -137,9 +146,9 @@ router.post("/login", async (req: Request, res: Response) => {
 
     // Generate JWT token
     const token = jwt.sign(
-      { 
-        userId: user._id, 
-        email: user.email, 
+      {
+        userId: user._id,
+        email: user.email,
         role: user.role,
         name: user.name,
         collegeName: user.collegeName
@@ -193,7 +202,7 @@ router.get("/me", async (req: Request, res: Response) => {
   try {
     // Get token from header
     const token = req.header('Authorization')?.replace('Bearer ', '');
-    
+
     if (!token) {
       return res.status(401).json({
         success: false,
@@ -235,7 +244,7 @@ router.get("/me", async (req: Request, res: Response) => {
 
   } catch (err: any) {
     console.error("Get profile error:", err);
-    
+
     if (err.name === 'JsonWebTokenError') {
       return res.status(401).json({
         success: false,

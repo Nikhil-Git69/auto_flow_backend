@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import Workspace from '../models/Workspace';
 import { AuthRequest } from '../middleware/auth';
+import { notifyWorkspaceJoined, notifyDocumentUploaded } from '../services/webhookService';
 
 export const createWorkspace = async (req: AuthRequest, res: Response) => {
     try {
@@ -118,6 +119,24 @@ export const joinWorkspace = async (req: AuthRequest, res: Response) => {
         workspace.members.push(userId);
         await workspace.save();
 
+        // Get user details for webhook
+        const User = require('../models/User').default;
+        const user = await User.findById(userId);
+        const owner = await User.findById(workspace.ownerId);
+
+        // Send webhook notification (non-blocking)
+        if (user && owner) {
+            notifyWorkspaceJoined({
+                workspaceId: workspace._id.toString(),
+                workspaceName: workspace.name,
+                userId: userId,
+                userName: user.name,
+                userEmail: user.email,
+                adminEmail: owner.email,
+                joinedAt: new Date()
+            }).catch(err => console.error('Webhook error:', err));
+        }
+
         res.status(200).json({
             success: true,
             message: "Successfully joined workspace",
@@ -225,6 +244,28 @@ export const addDocument = async (req: AuthRequest, res: Response) => {
 
         workspace.documents = [documentWithUser, ...workspace.documents];
         await workspace.save();
+
+        // Get owner email for webhook
+        const User = require('../models/User').default;
+        const owner = await User.findById(workspace.ownerId);
+
+        // Send webhook notification (non-blocking)
+        if (owner) {
+            notifyDocumentUploaded({
+                workspaceId: workspace._id.toString(),
+                workspaceName: workspace.name,
+                userId: userId,
+                userName: userName || 'Unknown User',
+                userEmail: userEmail || '',
+                adminEmail: owner.email,
+                fileName: document.fileName,
+                fileType: document.fileType,
+                analysisId: document.analysisId,
+                score: document.totalScore || 0,
+                issues: document.issues?.length || 0,
+                uploadedAt: new Date()
+            }).catch(err => console.error('Webhook error:', err));
+        }
 
         res.status(200).json({
             success: true,

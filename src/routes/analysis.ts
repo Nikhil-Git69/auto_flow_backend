@@ -9,6 +9,7 @@ import {
   generateCorrectedText // Added
 } from "../services/aiAnalysisService";
 import { v4 as uuidv4 } from 'uuid';
+import { notifyAnalysisCompleted } from '../services/webhookService';
 
 const router = Router();
 
@@ -166,6 +167,36 @@ router.post("/upload-file", (req: Request, res: Response) => {
       });
 
       await analysis.save();
+
+      // Send webhook notification (non-blocking)
+      // Try to get user details if available
+      let userEmail = '';
+      let userName = '';
+      if (userId) {
+        try {
+          const User = require('../models/User').default;
+          const user = await User.findById(userId);
+          if (user) {
+            userEmail = user.email;
+            userName = user.name;
+          }
+        } catch (err) {
+          console.warn('Could not fetch user details for webhook');
+        }
+      }
+
+      notifyAnalysisCompleted({
+        userId: userId || 'unknown',
+        userName: userName,
+        userEmail: userEmail,
+        analysisId: analysis.analysisId,
+        fileName: analysis.fileName,
+        fileType: analysis.fileType,
+        score: analysis.score,
+        issues: (analysis.issues as any[]).length,
+        summary: analysis.summary,
+        analyzedAt: analysis.analyzedAt
+      }).catch(err => console.error('Webhook error:', err));
 
       res.status(200).json({
         success: true,
