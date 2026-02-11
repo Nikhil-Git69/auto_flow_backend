@@ -75,7 +75,7 @@ const AnalysisSchema: Schema = new Schema({
   // NEW: Format customization fields
   formatType: {
     type: String,
-    enum: ['default', 'custom', 'professional', 'academic', 'legal', 'creative', 'resume'],
+    enum: ['default', 'custom', 'professional', 'academic', 'legal', 'creative', 'resume', 'concept'],
     default: 'default'
   },
   formatRequirements: {

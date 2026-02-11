@@ -60,6 +60,7 @@ export interface AnalysisResult {
     company?: string;
     date?: string;
     type?: string;
+    isLargeDocument?: boolean;
   };
   correctedContent?: string; // OCR or AI-corrected content
   images?: Array<{
@@ -477,6 +478,128 @@ export const analyzeDocumentWithAI = async (
     const textLength = isPDF ? (pdfTextContent?.length || 0) : (extractedText?.length || 0);
     const isLargeDocument = textLength > 25000; // Approx 5-6k tokens
     console.log(`📏 Document Length: ${textLength} chars. Large Document Mode: ${isLargeDocument}`);
+
+    // CONCEPT ANALYSIS: Special Handling for WBS
+    if (formatType === 'concept') {
+      const promptText = `
+        # CONCEPT ANALYSIS AGENT - WORK BREAKDOWN STRUCTURE (WBS) SPECIALIST
+
+        ## YOUR MISSION:
+        Analyze the provided document and generate a structured Work Breakdown Structure (WBS).
+        You are purely analytical. Do NOT edit the document. Do NOT correct grammar.
+        Your goal is to break down the project/concept into logical phases and tasks,
+        following the EXACT structure template below.
+
+        ## MANDATORY WBS STRUCTURE TEMPLATE:
+        You MUST organize the WBS into these 8 phases. Map the document's content into these phases.
+        For each phase, identify relevant deliverables and sub-tasks from the document.
+        If a phase is not applicable to the document, still include it but note "Not applicable to this document" or infer reasonable tasks.
+
+        ### Phase 1: Project Initiation
+        1.1 Understand report objectives
+        1.2 Review assignment guidelines & marking rubric
+        1.3 Select and refine report topic
+        1.4 Define scope and limitations
+        1.5 Develop project timeline
+
+        ### Phase 2: Research & Data Collection
+        2.1 Identify credible sources
+            2.1.1 Academic journals
+            2.1.2 Books & textbooks
+            2.1.3 Reputable websites / databases
+        2.2 Collect primary data (if applicable)
+            2.2.1 Surveys / questionnaires
+            2.2.2 Interviews / observations
+        2.3 Collect secondary data
+        2.4 Organize and categorize research materials
+
+        ### Phase 3: Report Planning & Structure
+        3.1 Develop report outline
+        3.2 Define chapter/section objectives
+        3.3 Decide on methodology / approach
+        3.4 Prepare list of figures, tables, and appendices
+
+        ### Phase 4: Analysis & Interpretation
+        4.1 Analyze collected data
+        4.2 Apply relevant theories/models
+        4.3 Compare findings with literature
+        4.4 Interpret results and implications
+        4.5 Identify limitations and assumptions
+
+        ### Phase 5: Report Writing
+        5.1 Write Introduction
+        5.2 Write Literature Review
+        5.3 Write Methodology
+        5.4 Write Analysis / Discussion
+        5.5 Write Conclusion & Recommendations
+
+        ### Phase 6: Review & Editing
+        6.1 Content review and refinement
+        6.2 Grammar and language editing
+        6.3 Formatting according to university guidelines
+        6.4 Plagiarism check and citation verification
+
+        ### Phase 7: Finalization & Submission
+        7.1 Prepare abstract / executive summary
+        7.2 Final formatting (font, spacing, margins)
+        7.3 Generate references & bibliography
+        7.4 Convert to required file format (PDF/DOCX)
+        7.5 Final submission
+
+        ### Phase 8: Presentation (If Required)
+        8.1 Prepare presentation slides
+        8.2 Design visuals (charts, diagrams)
+        8.3 Rehearse presentation
+        8.4 Deliver presentation
+
+        ## OUTPUT REQUIREMENTS (JSON):
+        1. **summary**: A high-level textual summary of the "Total WBS" describing the project scope and major phases identified from the document.
+        2. **processedContent**: A detailed, hierarchical WBS in **HTML format** following the 8-phase structure above.
+           - Use '<h3>' for phase titles (e.g., "<h3>Phase 1: Project Initiation</h3>").
+           - Use '<strong>' for deliverables.
+           - Use numbered items with '<ol>' and '<li>' for tasks.
+           - Use nested '<ul>' and '<li>' for sub-tasks.
+           - Map the document's actual content/topics into each phase where relevant.
+           - Add specific details from the document to make each task contextual.
+           - Do NOT use markdown. Use only HTML tags.
+        3. **score**: Always 100 (Concept analysis is informational, not graded).
+        4. **metadata**: Set 'type' to 'Concept'.
+        5. **issues**: Empty array (No correction needed).
+        6. **correctedContent**: Null (No editing).
+
+        ## DOCUMENT CONTENT:
+        ${isPDF ? pdfTextContent : extractedText}
+        `;
+
+      const contentParts: any[] = [{ text: promptText }];
+
+      // For PDFs, also send the visual data
+      if (isPDF) {
+        contentParts.push({
+          inlineData: {
+            data: fileBuffer.toString("base64"),
+            mimeType: "application/pdf"
+          }
+        });
+      }
+
+      const result = await generateWithRetry(model, contentParts);
+      const responseText = result.response.text().replace(/\`\`\`json|\`\`\`/g, "").trim();
+      const parsed = JSON.parse(responseText);
+
+      return {
+        success: true,
+        score: 100, // Concept is always 100
+        summary: parsed.summary,
+        issues: [],
+        processedContent: parsed.processedContent, // detailed WBS HTML
+        analysisType: "concept_wbs",
+        geminiModel: "gemini-2.5-flash",
+        metadata: { type: 'Concept', isLargeDocument },
+        correctedContent: "", // No correction
+        visualAnalysisPerformed: isPDF
+      };
+    }
 
     // CRITICAL: Enhanced prompt for custom format enforcement
     const promptText = `
