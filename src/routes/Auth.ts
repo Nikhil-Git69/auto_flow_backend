@@ -2,6 +2,7 @@
 import { Router, Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import User, { IUser } from "../models/User";
+import Analysis from "../models/Analysis"; // Add Analysis import
 import bcrypt from "bcryptjs"; // Add this import
 import { notifyUserSignup } from '../services/webhookService';
 
@@ -255,6 +256,70 @@ router.get("/me", async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       error: "Failed to get profile",
+      details: err.message
+    });
+  }
+});
+
+/**
+ * @swagger
+ * /auth/me:
+ *   delete:
+ *     summary: Delete current user account and all data
+ */
+router.delete("/me", async (req: Request, res: Response) => {
+  try {
+    // Get token from header
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        error: "Access denied. No token provided."
+      });
+    }
+
+    // Verify token
+    const decoded: any = jwt.verify(token, JWT_SECRET);
+    const userId = decoded.userId;
+
+    // Find and delete user
+    const user = await User.findByIdAndDelete(userId);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found"
+      });
+    }
+
+    // Delete all analyses by this user
+    await Analysis.deleteMany({ userId: userId });
+
+    // Optional: Remove user from workspaces (if Workspace model was imported)
+    // await Workspace.updateMany(
+    //   { members: userId },
+    //   { $pull: { members: userId } } 
+    // );
+
+    res.json({
+      success: true,
+      message: "Account and all associated data deleted successfully"
+    });
+
+  } catch (err: any) {
+    console.error("Delete account error:", err);
+
+    if (err.name === 'JsonWebTokenError') {
+      return res.status(401).json({
+        success: false,
+        error: "Invalid token"
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: "Failed to delete account",
       details: err.message
     });
   }

@@ -243,7 +243,8 @@ export const addDocument = async (req: AuthRequest, res: Response) => {
             userId,
             submitterName: userName || 'Unknown User',
             submitterEmail: userEmail || '',
-            formatType: document.formatType || 'default'
+            formatType: document.formatType || 'default',
+            status: 'Pending' // Force status to Pending to avoid validation errors from 'completed' status in Analysis
         };
 
         workspace.documents = [documentWithUser, ...workspace.documents];

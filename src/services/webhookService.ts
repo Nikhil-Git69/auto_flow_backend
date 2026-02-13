@@ -29,6 +29,12 @@ const sendWebhook = async (url: string, payload: any): Promise<void> => {
         // Don't throw errors - webhooks are non-critical
         // Just log and continue
         console.error('❌ Webhook failed:', error.message);
+        if (error.response) {
+            console.error('Status:', error.response.status);
+            console.error('Data:', error.response.data);
+        } else if (error.request) {
+            console.error('No response received. Is n8n running?');
+        }
     }
 };
 
