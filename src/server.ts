@@ -37,7 +37,10 @@ app.use(cors({
   origin: (origin, cb) => {
     const allowed = [
       "http://localhost:3000",
-      "https://your-frontend.vercel.app",
+      "https://autoflowwebappvercel.vercel.app",
+      "https://autoflow.nikhilnagarkoti.com.np",
+      "https://www.nikhilnagarkoti.com.np",
+
     ];
     if (!origin || allowed.includes(origin)) return cb(null, true);
     return cb(new Error("Not allowed by CORS"), false);
