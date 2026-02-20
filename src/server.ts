@@ -27,16 +27,22 @@ import chatRoutes from "./routes/chat";
 import workspaceRoutes from "./routes/workspace";
 
 const app = express();
-const PORT = 5000;
+const PORT = Number(process.env.PORT) || 5000
 
 // INCREASE PAYLOAD LIMITS FOR FILE UPLOADS
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
 app.use(cors({
-  origin: ['http://localhost:3000'], // Your React app
+  origin: (origin, cb) => {
+    const allowed = [
+      "http://localhost:3000",
+      "https://your-frontend.vercel.app",
+    ];
+    if (!origin || allowed.includes(origin)) return cb(null, true);
+    return cb(new Error("Not allowed by CORS"), false);
+  },
   credentials: true,
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With']
 }));
 
 connectDB();
@@ -169,7 +175,7 @@ app.use((req: express.Request, res: express.Response) => {
   });
 });
 
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ Server running at http://localhost:${PORT}`);
   console.log(`📚 Swagger UI: http://localhost:${PORT}/api-docs`);
   console.log(`🩺 Health check: http://localhost:${PORT}/health`);
