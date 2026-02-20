@@ -45,6 +45,7 @@ export const getAllWorkspaces = async (req: AuthRequest, res: Response) => {
     try {
         const userId = req.user.userId;
         const workspaces = await Workspace.find({ members: userId })
+            .select('-documents.correctedPdfBase64 -documents.processedContent -documents.correctedContent')
             .sort({ updatedAt: -1 });
 
         res.status(200).json({

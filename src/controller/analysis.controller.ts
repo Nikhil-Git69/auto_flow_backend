@@ -1,7 +1,7 @@
 import { Route, Get, Post, Query, Body, Tags } from 'tsoa';
 import { IAnalysis } from '../models/Analysis';
 import AnalysisModel from '../models/Analysis';
-import { 
+import {
   generateCorrectedDocument,
   Issue,
   extractTextFromWordDocument,
@@ -17,7 +17,7 @@ export class AnalysisController {
    */
   @Post('/analyze')
   public async analyzeDocument(
-    @Body() body: { 
+    @Body() body: {
       fileBuffer: string; // Base64 string from frontend
       fileName: string;
       requirements: string;
@@ -30,7 +30,7 @@ export class AnalysisController {
     try {
       const buffer = Buffer.from(body.fileBuffer, 'base64');
       const templateBuffer = body.templateBuffer ? Buffer.from(body.templateBuffer, 'base64') : undefined;
-      
+
       // Convert templateBuffer to Multer.File-like object if exists
       let templateFile: any = undefined;
       if (templateBuffer) {
@@ -103,26 +103,26 @@ export class AnalysisController {
       .sort({ analyzedAt: -1 });
     return { data, total };
   }
-  
+
   @Post('/export')
   public async exportCorrected(
-    @Body() body: { 
+    @Body() body: {
       analysisId: string;
       originalBase64?: string;
-      issues: Issue[]; 
-      fixedIssueIds: string[]; 
+      issues: Issue[];
+      fixedIssueIds: string[];
       fileName?: string;
     }
   ): Promise<{ success: boolean; data: any }> {
     try {
       const { analysisId, originalBase64, issues, fixedIssueIds, fileName } = body;
       let originalBuffer: Buffer;
-      
+
       if (analysisId) {
         const analysis = await AnalysisModel.findOne({ analysisId }).select('+fileData');
         if (!analysis || !analysis.fileData) throw new Error("Original file not found.");
         originalBuffer = analysis.fileData as Buffer;
-        
+
         const correctedDoc = await generateCorrectedDocument(originalBuffer, analysis.fileName, issues, fixedIssueIds);
 
         return {
@@ -158,7 +158,7 @@ export class AnalysisController {
 // Helper function to guess MIME type from filename
 function getMimeTypeFromFileName(fileName: string): string {
   const ext = fileName.toLowerCase().split('.').pop();
-  
+
   switch (ext) {
     case 'pdf':
       return 'application/pdf';

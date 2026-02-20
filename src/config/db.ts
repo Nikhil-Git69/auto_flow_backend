@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-const MONGO_URL = "mongodb://localhost:27017/stt";
+const MONGO_URL = process.env.MONGO_URI as string;
 
 const connectDB = async (): Promise<void> => {
   try {
