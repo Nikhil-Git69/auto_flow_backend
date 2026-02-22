@@ -1,12 +1,7 @@
 import axios from 'axios';
 
-// Load webhook URLs from environment variables
-const WEBHOOK_URLS = {
-    WORKSPACE_JOINED: process.env.N8N_WEBHOOK_WORKSPACE_JOINED || '',
-    DOCUMENT_UPLOADED: process.env.N8N_WEBHOOK_DOCUMENT_UPLOADED || '',
-    ANALYSIS_COMPLETED: process.env.N8N_WEBHOOK_ANALYSIS_COMPLETED || '',
-    USER_SIGNUP: process.env.N8N_WEBHOOK_USER_SIGNUP || '',
-    DAILY_DIGEST: process.env.N8N_WEBHOOK_DAILY_DIGEST || '',
+const getWebhookUrl = (key: string): string => {
+    return process.env[key] || '';
 };
 
 // Generic webhook sender
@@ -42,7 +37,7 @@ export const notifyWorkspaceJoined = async (data: {
     adminEmail: string;
     joinedAt: Date;
 }) => {
-    await sendWebhook(WEBHOOK_URLS.WORKSPACE_JOINED, {
+    await sendWebhook(getWebhookUrl('N8N_WEBHOOK_WORKSPACE_JOINED'), {
         eventType: 'workspace_joined',
         timestamp: new Date().toISOString(),
         workspace: {
@@ -76,7 +71,7 @@ export const notifyDocumentUploaded = async (data: {
     issues: number;
     uploadedAt: Date;
 }) => {
-    await sendWebhook(WEBHOOK_URLS.DOCUMENT_UPLOADED, {
+    await sendWebhook(getWebhookUrl('N8N_WEBHOOK_DOCUMENT_UPLOADED'), {
         eventType: 'document_uploaded',
         timestamp: new Date().toISOString(),
         workspace: {
@@ -115,7 +110,7 @@ export const notifyAnalysisCompleted = async (data: {
     summary: string;
     analyzedAt: Date;
 }) => {
-    await sendWebhook(WEBHOOK_URLS.ANALYSIS_COMPLETED, {
+    await sendWebhook(getWebhookUrl('N8N_WEBHOOK_ANALYSIS_COMPLETED'), {
         eventType: 'analysis_completed',
         timestamp: new Date().toISOString(),
         user: {
@@ -136,21 +131,56 @@ export const notifyAnalysisCompleted = async (data: {
 };
 
 // Notify when new user signs up
-export const notifyUserSignup = async (data: {
+// export const notifyUserSignup = async (data: {
+//     userId: string;
+//     userName: string;
+//     userEmail: string;
+//     signupAt: Date;
+// }) => {
+//     await sendWebhook(getWebhookUrl('N8N_WEBHOOK_USER_SIGNUP'), {
+//         eventType: 'user_signup',
+//         timestamp: new Date().toISOString(),
+//         user: {
+//             id: data.userId,
+//             name: data.userName,
+//             email: data.userEmail,
+//         },
+//         signupAt: data.signupAt,
+//     });
+// };
+
+// Notify when reference material is uploaded
+export const notifyReferenceUploaded = async (data: {
+    workspaceId: string;
+    workspaceName: string;
     userId: string;
     userName: string;
     userEmail: string;
-    signupAt: Date;
+    memberEmails: string[]; // Emails of users in workspace
+    fileName: string;
+    fileSize: number;
+    fileType: string;
+    uploadedAt: Date;
 }) => {
-    await sendWebhook(WEBHOOK_URLS.USER_SIGNUP, {
-        eventType: 'user_signup',
+    await sendWebhook(getWebhookUrl('N8N_WEBHOOK_REFERENCE_UPLOADED'), {
+        eventType: 'reference_uploaded',
         timestamp: new Date().toISOString(),
+        workspace: {
+            id: data.workspaceId,
+            name: data.workspaceName,
+            memberEmails: data.memberEmails,
+        },
         user: {
             id: data.userId,
             name: data.userName,
             email: data.userEmail,
         },
-        signupAt: data.signupAt,
+        reference: {
+            fileName: data.fileName,
+            fileSize: data.fileSize,
+            fileType: data.fileType,
+        },
+        uploadedAt: data.uploadedAt,
     });
 };
 
@@ -162,7 +192,7 @@ export const notifyDailyDigest = async (data: {
     date: Date;
     topAnalyses?: any[];
 }) => {
-    await sendWebhook(WEBHOOK_URLS.DAILY_DIGEST, {
+    await sendWebhook(getWebhookUrl('N8N_WEBHOOK_DAILY_DIGEST'), {
         eventType: 'daily_digest',
         timestamp: new Date().toISOString(),
         stats: {
@@ -172,5 +202,197 @@ export const notifyDailyDigest = async (data: {
         },
         topAnalyses: data.topAnalyses || [],
         date: data.date,
+    });
+};
+
+// Notify when admin accepts a report
+export const notifyReportAccepted = async (data: {
+    workspaceId: string;
+    workspaceName: string;
+    userId: string;
+    userName: string;
+    userEmail: string;
+    adminEmail: string;
+    fileName: string;
+    analysisId: string;
+    acceptedAt: Date;
+}) => {
+    await sendWebhook(getWebhookUrl('N8N_WEBHOOK_REPORT_ACCEPTED'), {
+        eventType: 'report_accepted',
+        timestamp: new Date().toISOString(),
+        workspace: {
+            id: data.workspaceId,
+            name: data.workspaceName,
+        },
+        user: {
+            id: data.userId,
+            name: data.userName,
+            email: data.userEmail,
+        },
+        admin: {
+            email: data.adminEmail,
+        },
+        document: {
+            fileName: data.fileName,
+            analysisId: data.analysisId,
+        },
+        acceptedAt: data.acceptedAt,
+    });
+};
+
+// Notify when admin rejects a report
+export const notifyReportRejected = async (data: {
+    workspaceId: string;
+    workspaceName: string;
+    userId: string;
+    userName: string;
+    userEmail: string;
+    adminEmail: string;
+    fileName: string;
+    analysisId: string;
+    rejectedAt: Date;
+}) => {
+    await sendWebhook(getWebhookUrl('N8N_WEBHOOK_REPORT_REJECTED'), {
+        eventType: 'report_rejected',
+        timestamp: new Date().toISOString(),
+        workspace: {
+            id: data.workspaceId,
+            name: data.workspaceName,
+        },
+        user: {
+            id: data.userId,
+            name: data.userName,
+            email: data.userEmail,
+        },
+        admin: {
+            email: data.adminEmail,
+        },
+        document: {
+            fileName: data.fileName,
+            analysisId: data.analysisId,
+        },
+        rejectedAt: data.rejectedAt,
+    });
+};
+
+// Notify when activity/task progress is updated by a member or admin/co-admin
+export const notifyTaskProgressUpdated = async (data: {
+    workspaceId: string;
+    workspaceName: string;
+    userId: string;
+    userName: string;
+    userEmail: string;
+    adminEmail: string;
+    memberEmails: string[]; // All workspace member emails including owner
+    taskId: string;
+    taskTitle: string;
+    oldStatus: string;
+    newStatus: string;
+    updatedAt: Date;
+}) => {
+    await sendWebhook(getWebhookUrl('N8N_WEBHOOK_ACTIVITY_COMPLETED'), {
+        eventType: 'task_progress_updated',
+        timestamp: new Date().toISOString(),
+        workspace: {
+            id: data.workspaceId,
+            name: data.workspaceName,
+            memberEmails: data.memberEmails,
+        },
+        user: {
+            id: data.userId,
+            name: data.userName,
+            email: data.userEmail,
+        },
+        admin: {
+            email: data.adminEmail,
+        },
+        task: {
+            id: data.taskId,
+            title: data.taskTitle,
+            oldStatus: data.oldStatus,
+            newStatus: data.newStatus,
+        },
+        updatedAt: data.updatedAt,
+    });
+};
+
+// Notify when a new activity/task is added to a workspace
+export const notifyActivityAdded = async (data: {
+    workspaceId: string;
+    workspaceName: string;
+    adminId: string;
+    adminName: string;
+    adminEmail: string;
+    memberEmails: string[];
+    taskId: string;
+    taskTitle: string;
+    taskDescription: string;
+    taskPriority: string;
+    taskDeadline?: Date;
+    addedAt: Date;
+}) => {
+    await sendWebhook(getWebhookUrl('N8N_WEBHOOK_ACTIVITY_ADDED'), {
+        eventType: 'activity_added',
+        timestamp: new Date().toISOString(),
+        workspace: {
+            id: data.workspaceId,
+            name: data.workspaceName,
+            memberEmails: data.memberEmails,
+        },
+        admin: {
+            id: data.adminId,
+            name: data.adminName,
+            email: data.adminEmail,
+        },
+        task: {
+            id: data.taskId,
+            title: data.taskTitle,
+            description: data.taskDescription,
+            priority: data.taskPriority,
+            deadline: data.taskDeadline,
+        },
+        addedAt: data.addedAt,
+    });
+};
+
+// Notify user with OTP for email verification
+export const notifyEmailVerification = async (data: {
+    userId: string;
+    userName: string;
+    userEmail: string;
+    otp: string;
+    expiresInMinutes: number;
+}) => {
+    await sendWebhook(getWebhookUrl('N8N_WEBHOOK_EMAIL_VERIFICATION'), {
+        eventType: 'email_verification',
+        timestamp: new Date().toISOString(),
+        user: {
+            id: data.userId,
+            name: data.userName,
+            email: data.userEmail,
+        },
+        verification: {
+            otp: data.otp,
+            expiresInMinutes: data.expiresInMinutes,
+        },
+    });
+};
+
+// Notify user with welcome email after email is verified
+export const notifyWelcome = async (data: {
+    userId: string;
+    userName: string;
+    userEmail: string;
+    signupAt: Date;
+}) => {
+    await sendWebhook(getWebhookUrl('N8N_WEBHOOK_WELCOME_EMAIL'), {
+        eventType: 'welcome',
+        timestamp: new Date().toISOString(),
+        user: {
+            id: data.userId,
+            name: data.userName,
+            email: data.userEmail,
+        },
+        signupAt: data.signupAt,
     });
 };

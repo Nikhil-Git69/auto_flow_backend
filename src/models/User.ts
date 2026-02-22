@@ -12,6 +12,7 @@ export interface IUser extends Document {
   department?: string;
   logoUrl?: string;
   isActive: boolean;
+  isEmailVerified: boolean;
   lastLogin?: Date;
   createdAt?: Date;
   updatedAt?: Date;
@@ -54,6 +55,7 @@ const UserSchema: Schema = new Schema({
   department: { type: String },
   logoUrl: { type: String },
   isActive: { type: Boolean, default: true },
+  isEmailVerified: { type: Boolean, default: false },
   lastLogin: { type: Date }
 }, {
   timestamps: true

@@ -1,36 +1,72 @@
-// backend/src/routes/auth.ts - FIXED VERSION
+// backend/src/routes/auth.ts
 import { Router, Request, Response } from "express";
 import jwt from "jsonwebtoken";
-import User, { IUser } from "../models/User";
-import bcrypt from "bcryptjs"; // Add this import
-import { notifyUserSignup } from '../services/webhookService';
+import User from "../models/User";
+import bcrypt from "bcryptjs";
+import { notifyEmailVerification, notifyWelcome } from '../services/webhookService';
+import { generateOtp, verifyOtp, clearOtp } from '../services/otpService';
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-this-in-production';
 
+// Helper to build user response object
+const buildUserResponse = (user: any) => ({
+  _id: user._id,
+  email: user.email,
+  name: user.name,
+  collegeName: user.collegeName,
+  role: user.role,
+  studentId: user.studentId,
+  department: user.department,
+  logoUrl: user.logoUrl,
+  isActive: user.isActive,
+  isEmailVerified: user.isEmailVerified,
+  lastLogin: user.lastLogin,
+  createdAt: user.createdAt,
+  updatedAt: user.updatedAt
+});
+
 /**
- * @swagger
- * /auth/register:
- *   post:
- *     summary: Register a new user
+ * POST /auth/register
+ * Creates account, generates OTP, sends verification email.
+ * Does NOT return a token — user must verify email first.
  */
 router.post("/register", async (req: Request, res: Response) => {
   try {
     const { email, password, name, collegeName, role, studentId, department, logoUrl } = req.body;
 
-    // Check if user already exists
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return res.status(409).json({
-        success: false,
-        error: "Email already registered"
-      });
+    if (!email || !password || !name) {
+      return res.status(400).json({ success: false, error: "Name, email and password are required" });
     }
 
-    // Hash password before saving
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      // If user exists but never verified, re-send OTP using same flow as resend-otp
+      if (!existingUser.isEmailVerified) {
+        const otp = generateOtp(email);
+        try {
+          await notifyEmailVerification({
+            userId: existingUser._id.toString(),
+            userName: existingUser.name,
+            userEmail: existingUser.email,
+            otp,
+            expiresInMinutes: 10
+          });
+        } catch (webhookErr) {
+          console.error('Verification webhook error (re-register):', webhookErr);
+        }
+        return res.status(200).json({
+          success: true,
+          requiresVerification: true,
+          email,
+          message: "Account exists but email not verified. A new OTP has been sent."
+        });
+      }
+      return res.status(409).json({ success: false, error: "Email already registered" });
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create new user
     const user = new User({
       email,
       password: hashedPassword,
@@ -40,223 +76,233 @@ router.post("/register", async (req: Request, res: Response) => {
       studentId,
       department,
       logoUrl,
-      isActive: true
+      isActive: false,           // inactive until verified
+      isEmailVerified: false
     });
 
     await user.save();
 
-    // Generate JWT token
+    // Generate OTP and send verification email — awaited to guarantee delivery (same as resend-otp)
+    const otp = generateOtp(email);
+    try {
+      await notifyEmailVerification({
+        userId: user._id.toString(),
+        userName: user.name,
+        userEmail: user.email,
+        otp,
+        expiresInMinutes: 10
+      });
+    } catch (webhookErr) {
+      console.error('Verification webhook error (register):', webhookErr);
+      // Don't fail registration if webhook fails — user can resend OTP
+    }
+
+    res.status(201).json({
+      success: true,
+      requiresVerification: true,
+      email,
+      message: "Account created. Please check your email for the verification OTP."
+    });
+
+  } catch (err: any) {
+    console.error("Registration error:", err);
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ success: false, error: "Validation error", details: err.errors });
+    }
+    res.status(500).json({ success: false, error: "Registration failed", details: err.message });
+  }
+});
+
+/**
+ * POST /auth/verify-email
+ * Accepts { email, otp }. On success activates account and returns JWT + welcome email.
+ */
+router.post("/verify-email", async (req: Request, res: Response) => {
+  try {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+      return res.status(400).json({ success: false, error: "Email and OTP are required" });
+    }
+
+    const result = verifyOtp(email, otp);
+
+    if (result === 'expired') {
+      return res.status(400).json({ success: false, error: "OTP has expired. Please request a new one.", code: 'OTP_EXPIRED' });
+    }
+    if (result === 'invalid') {
+      return res.status(400).json({ success: false, error: "Invalid OTP. Please try again.", code: 'OTP_INVALID' });
+    }
+
+    // OTP is valid — activate the account
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ success: false, error: "User not found" });
+    }
+
+    user.isEmailVerified = true;
+    user.isActive = true;
+    await user.save();
+    clearOtp(email);
+
+    // Issue JWT
     const token = jwt.sign(
       { userId: user._id, email: user.email, role: user.role },
       JWT_SECRET,
       { expiresIn: '7d' }
     );
 
-    // Return user without password
-    const userResponse = {
-      _id: user._id,
-      email: user.email,
-      name: user.name,
-      collegeName: user.collegeName,
-      role: user.role,
-      studentId: user.studentId,
-      department: user.department,
-      logoUrl: user.logoUrl,
-      isActive: user.isActive,
-      lastLogin: user.lastLogin,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt
-    };
-
-    // Send webhook notification for new user (non-blocking)
-    notifyUserSignup({
+    // Send welcome email (non-blocking)
+    notifyWelcome({
       userId: user._id.toString(),
       userName: user.name,
       userEmail: user.email,
       signupAt: new Date()
-    }).catch(err => console.error('Webhook error:', err));
+    }).catch(err => console.error('Welcome webhook error:', err));
 
-    res.status(201).json({
+
+
+    res.status(200).json({
       success: true,
-      message: "User registered successfully",
+      message: "Email verified successfully!",
       data: {
-        user: userResponse,
+        user: buildUserResponse(user),
         token
       }
     });
 
   } catch (err: any) {
-    console.error("Registration error:", err);
-
-    if (err.name === 'ValidationError') {
-      return res.status(400).json({
-        success: false,
-        error: "Validation error",
-        details: err.errors
-      });
-    }
-
-    res.status(500).json({
-      success: false,
-      error: "Registration failed",
-      details: err.message
-    });
+    console.error("Verify email error:", err);
+    res.status(500).json({ success: false, error: "Verification failed", details: err.message });
   }
 });
 
 /**
- * @swagger
- * /auth/login:
- *   post:
- *     summary: Login user
+ * POST /auth/resend-otp
+ * Accepts { email }. Regenerates and resends OTP.
+ */
+router.post("/resend-otp", async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ success: false, error: "Email is required" });
+
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ success: false, error: "User not found" });
+
+    if (user.isEmailVerified) {
+      return res.status(400).json({ success: false, error: "Email already verified" });
+    }
+
+    const otp = generateOtp(email);
+    try {
+      await notifyEmailVerification({
+        userId: user._id.toString(),
+        userName: user.name,
+        userEmail: user.email,
+        otp,
+        expiresInMinutes: 10
+      });
+    } catch (webhookErr) {
+      console.error('Resend OTP webhook error:', webhookErr);
+    }
+
+    res.status(200).json({ success: true, message: "A new OTP has been sent to your email." });
+
+  } catch (err: any) {
+    console.error("Resend OTP error:", err);
+    res.status(500).json({ success: false, error: "Failed to resend OTP", details: err.message });
+  }
+});
+
+/**
+ * POST /auth/login
  */
 router.post("/login", async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
 
-    // Find user with password included
     const user = await User.findOne({ email }).select('+password');
     if (!user) {
-      return res.status(401).json({
+      return res.status(401).json({ success: false, error: "Invalid email or password" });
+    }
+
+    // Block unverified users — but send them a fresh OTP first
+    if (!user.isEmailVerified) {
+      const otp = generateOtp(email);
+      try {
+        await notifyEmailVerification({
+          userId: user._id.toString(),
+          userName: user.name,
+          userEmail: user.email,
+          otp,
+          expiresInMinutes: 10
+        });
+      } catch (webhookErr) {
+        console.error('Verification webhook error (login):', webhookErr);
+      }
+      return res.status(403).json({
         success: false,
-        error: "Invalid email or password"
+        requiresVerification: true,
+        email,
+        error: "Please verify your email before logging in. A new code has been sent."
       });
     }
 
-    // Check if user is active
     if (!user.isActive) {
-      return res.status(401).json({
-        success: false,
-        error: "Account is deactivated"
-      });
+      return res.status(401).json({ success: false, error: "Account is deactivated" });
     }
 
-    // Verify password using bcrypt directly
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
-      return res.status(401).json({
-        success: false,
-        error: "Invalid email or password"
-      });
+      return res.status(401).json({ success: false, error: "Invalid email or password" });
     }
 
-    // Update last login
     user.lastLogin = new Date();
     await user.save();
 
-    // Generate JWT token
     const token = jwt.sign(
-      {
-        userId: user._id,
-        email: user.email,
-        role: user.role,
-        name: user.name,
-        collegeName: user.collegeName
-      },
+      { userId: user._id, email: user.email, role: user.role, name: user.name, collegeName: user.collegeName },
       JWT_SECRET,
       { expiresIn: '7d' }
     );
 
-    // Create user response without password
-    const userResponse = {
-      _id: user._id,
-      email: user.email,
-      name: user.name,
-      collegeName: user.collegeName,
-      role: user.role,
-      studentId: user.studentId,
-      department: user.department,
-      logoUrl: user.logoUrl,
-      isActive: user.isActive,
-      lastLogin: user.lastLogin,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt
-    };
-
     res.json({
       success: true,
       message: "Login successful",
-      data: {
-        user: userResponse,
-        token
-      }
+      data: { user: buildUserResponse(user), token }
     });
 
   } catch (err: any) {
     console.error("Login error:", err);
-    res.status(500).json({
-      success: false,
-      error: "Login failed",
-      details: err.message
-    });
+    res.status(500).json({ success: false, error: "Login failed", details: err.message });
   }
 });
 
 /**
- * @swagger
- * /auth/me:
- *   get:
- *     summary: Get current user profile
+ * GET /auth/me
  */
 router.get("/me", async (req: Request, res: Response) => {
   try {
-    // Get token from header
     const token = req.header('Authorization')?.replace('Bearer ', '');
-
     if (!token) {
-      return res.status(401).json({
-        success: false,
-        error: "Access denied. No token provided."
-      });
+      return res.status(401).json({ success: false, error: "Access denied. No token provided." });
     }
 
-    // Verify token
     const decoded: any = jwt.verify(token, JWT_SECRET);
     const user = await User.findById(decoded.userId);
 
     if (!user) {
-      return res.status(401).json({
-        success: false,
-        error: "User not found"
-      });
+      return res.status(401).json({ success: false, error: "User not found" });
     }
 
-    // Create user response without password
-    const userResponse = {
-      _id: user._id,
-      email: user.email,
-      name: user.name,
-      collegeName: user.collegeName,
-      role: user.role,
-      studentId: user.studentId,
-      department: user.department,
-      logoUrl: user.logoUrl,
-      isActive: user.isActive,
-      lastLogin: user.lastLogin,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt
-    };
-
-    res.json({
-      success: true,
-      data: userResponse
-    });
+    res.json({ success: true, data: buildUserResponse(user) });
 
   } catch (err: any) {
     console.error("Get profile error:", err);
-
     if (err.name === 'JsonWebTokenError') {
-      return res.status(401).json({
-        success: false,
-        error: "Invalid token"
-      });
+      return res.status(401).json({ success: false, error: "Invalid token" });
     }
-
-    res.status(500).json({
-      success: false,
-      error: "Failed to get profile",
-      details: err.message
-    });
+    res.status(500).json({ success: false, error: "Failed to get profile", details: err.message });
   }
 });
 

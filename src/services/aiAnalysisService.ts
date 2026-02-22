@@ -4,6 +4,7 @@ import mammoth from 'mammoth';
 const pdfParse = require('pdf-parse');
 import dotenv from "dotenv";
 import path from 'path';
+import fs from 'fs';
 
 dotenv.config();
 
@@ -399,14 +400,15 @@ const createFallbackResponse = (
   };
 };
 
-// UPDATED: Function now accepts 6 parameters with ENHANCED PROMPT
+// Function to analyze document with AI
 export const analyzeDocumentWithAI = async (
   fileBuffer: Buffer,
   fileName: string,
   fileMimeType: string,
   formatType: string,
   formatRequirements?: string,
-  templateFile?: any
+  templateFile?: any,
+  analysisId?: string
 ): Promise<AnalysisResult> => {
   let extractedText = '';
   let pdfTextContent = '';
@@ -417,12 +419,12 @@ export const analyzeDocumentWithAI = async (
     if (!genAI) throw new Error("AI Service not initialized.");
 
     // Log all parameters for debugging
-    console.log(`🔍 [AI Service] Analyzing document:`);
+    console.log(`🔍[AI Service] Analyzing document: `);
     console.log(`   - File: ${fileName}`);
     console.log(`   - MIME Type: ${fileMimeType}`);
     console.log(`   - Format Type: ${formatType}`);
     console.log(`   - Template File: ${templateFile ? 'Provided' : 'Not provided'}`);
-    console.log(`   - Requirements: ${formatRequirements || 'None'}`);
+    console.log(`   - Requirements: ${formatRequirements || 'None'} `);
 
     // Use Gemini 2.5 Flash for VISUAL PDF analysis
     const model = genAI.getGenerativeModel({
@@ -477,99 +479,99 @@ export const analyzeDocumentWithAI = async (
     // Check for large document to avoid token limits
     const textLength = isPDF ? (pdfTextContent?.length || 0) : (extractedText?.length || 0);
     const isLargeDocument = textLength > 25000; // Approx 5-6k tokens
-    console.log(`📏 Document Length: ${textLength} chars. Large Document Mode: ${isLargeDocument}`);
+    console.log(`📏 Document Length: ${textLength} chars.Large Document Mode: ${isLargeDocument} `);
 
     // CONCEPT ANALYSIS: Special Handling for WBS
     if (formatType === 'concept') {
       const promptText = `
-        # CONCEPT ANALYSIS AGENT - WORK BREAKDOWN STRUCTURE (WBS) SPECIALIST
+        # CONCEPT ANALYSIS AGENT - WORK BREAKDOWN STRUCTURE(WBS) SPECIALIST
 
         ## YOUR MISSION:
-        Analyze the provided document and generate a structured Work Breakdown Structure (WBS).
-        You are purely analytical. Do NOT edit the document. Do NOT correct grammar.
-        Your goal is to break down the project/concept into logical phases and tasks,
+        Analyze the provided document and generate a structured Work Breakdown Structure(WBS).
+        You are purely analytical.Do NOT edit the document.Do NOT correct grammar.
+        Your goal is to break down the project / concept into logical phases and tasks,
         following the EXACT structure template below.
 
         ## MANDATORY WBS STRUCTURE TEMPLATE:
-        You MUST organize the WBS into these 8 phases. Map the document's content into these phases.
-        For each phase, identify relevant deliverables and sub-tasks from the document.
+        You MUST organize the WBS into these 8 phases.Map the document's content into these phases.
+        For each phase, identify relevant deliverables and sub - tasks from the document.
         If a phase is not applicable to the document, still include it but note "Not applicable to this document" or infer reasonable tasks.
 
         ### Phase 1: Project Initiation
-        1.1 Understand report objectives
-        1.2 Review assignment guidelines & marking rubric
-        1.3 Select and refine report topic
-        1.4 Define scope and limitations
-        1.5 Develop project timeline
+      1.1 Understand report objectives
+      1.2 Review assignment guidelines & marking rubric
+      1.3 Select and refine report topic
+      1.4 Define scope and limitations
+      1.5 Develop project timeline
 
         ### Phase 2: Research & Data Collection
-        2.1 Identify credible sources
-            2.1.1 Academic journals
-            2.1.2 Books & textbooks
-            2.1.3 Reputable websites / databases
-        2.2 Collect primary data (if applicable)
-            2.2.1 Surveys / questionnaires
-            2.2.2 Interviews / observations
-        2.3 Collect secondary data
-        2.4 Organize and categorize research materials
+      2.1 Identify credible sources
+      2.1.1 Academic journals
+      2.1.2 Books & textbooks
+      2.1.3 Reputable websites / databases
+      2.2 Collect primary data(if applicable)
+        2.2.1 Surveys / questionnaires
+      2.2.2 Interviews / observations
+      2.3 Collect secondary data
+      2.4 Organize and categorize research materials
 
         ### Phase 3: Report Planning & Structure
-        3.1 Develop report outline
-        3.2 Define chapter/section objectives
-        3.3 Decide on methodology / approach
-        3.4 Prepare list of figures, tables, and appendices
+      3.1 Develop report outline
+      3.2 Define chapter / section objectives
+      3.3 Decide on methodology / approach
+      3.4 Prepare list of figures, tables, and appendices
 
         ### Phase 4: Analysis & Interpretation
-        4.1 Analyze collected data
-        4.2 Apply relevant theories/models
-        4.3 Compare findings with literature
+      4.1 Analyze collected data
+      4.2 Apply relevant theories / models
+      4.3 Compare findings with literature
         4.4 Interpret results and implications
-        4.5 Identify limitations and assumptions
+      4.5 Identify limitations and assumptions
 
         ### Phase 5: Report Writing
-        5.1 Write Introduction
-        5.2 Write Literature Review
-        5.3 Write Methodology
-        5.4 Write Analysis / Discussion
-        5.5 Write Conclusion & Recommendations
+      5.1 Write Introduction
+      5.2 Write Literature Review
+      5.3 Write Methodology
+      5.4 Write Analysis / Discussion
+      5.5 Write Conclusion & Recommendations
 
         ### Phase 6: Review & Editing
-        6.1 Content review and refinement
-        6.2 Grammar and language editing
-        6.3 Formatting according to university guidelines
-        6.4 Plagiarism check and citation verification
+      6.1 Content review and refinement
+      6.2 Grammar and language editing
+      6.3 Formatting according to university guidelines
+      6.4 Plagiarism check and citation verification
 
         ### Phase 7: Finalization & Submission
-        7.1 Prepare abstract / executive summary
-        7.2 Final formatting (font, spacing, margins)
-        7.3 Generate references & bibliography
-        7.4 Convert to required file format (PDF/DOCX)
-        7.5 Final submission
+      7.1 Prepare abstract / executive summary
+      7.2 Final formatting(font, spacing, margins)
+      7.3 Generate references & bibliography
+      7.4 Convert to required file format(PDF / DOCX)
+      7.5 Final submission
 
-        ### Phase 8: Presentation (If Required)
-        8.1 Prepare presentation slides
-        8.2 Design visuals (charts, diagrams)
-        8.3 Rehearse presentation
-        8.4 Deliver presentation
+        ### Phase 8: Presentation(If Required)
+      8.1 Prepare presentation slides
+      8.2 Design visuals(charts, diagrams)
+      8.3 Rehearse presentation
+      8.4 Deliver presentation
 
-        ## OUTPUT REQUIREMENTS (JSON):
-        1. **summary**: A high-level textual summary of the "Total WBS" describing the project scope and major phases identified from the document.
-        2. **processedContent**: A detailed, hierarchical WBS in **HTML format** following the 8-phase structure above.
-           - Use '<h3>' for phase titles (e.g., "<h3>Phase 1: Project Initiation</h3>").
+        ## OUTPUT REQUIREMENTS(JSON):
+      1. ** summary **: A high - level textual summary of the "Total WBS" describing the project scope and major phases identified from the document.
+        2. ** processedContent **: A detailed, hierarchical WBS in ** HTML format ** following the 8 - phase structure above.
+           - Use '<h3>' for phase titles(e.g., "<h3>Phase 1: Project Initiation</h3>").
            - Use '<strong>' for deliverables.
            - Use numbered items with '<ol>' and '<li>' for tasks.
-           - Use nested '<ul>' and '<li>' for sub-tasks.
+           - Use nested '<ul>' and '<li>' for sub - tasks.
            - Map the document's actual content/topics into each phase where relevant.
-           - Add specific details from the document to make each task contextual.
-           - Do NOT use markdown. Use only HTML tags.
-        3. **score**: Always 100 (Concept analysis is informational, not graded).
-        4. **metadata**: Set 'type' to 'Concept'.
-        5. **issues**: Empty array (No correction needed).
-        6. **correctedContent**: Null (No editing).
+          - Add specific details from the document to make each task contextual.
+           - Do NOT use markdown.Use only HTML tags.
+        3. ** score **: Always 100(Concept analysis is informational, not graded).
+        4. ** metadata **: Set 'type' to 'Concept'.
+        5. ** issues **: Empty array(No correction needed).
+        6. ** correctedContent **: Null(No editing).
 
         ## DOCUMENT CONTENT:
         ${isPDF ? pdfTextContent : extractedText}
-        `;
+      `;
 
       const contentParts: any[] = [{ text: promptText }];
 
@@ -601,16 +603,104 @@ export const analyzeDocumentWithAI = async (
       };
     }
 
+    // REPORT ANALYSIS
+    if (formatType === 'report') {
+      const promptText = `
+        # REPORT ANALYSIS AGENT
+
+        ## YOUR MISSION:
+        You are a university examiner reviewing a student project report.
+        Write a detailed analytical summary of the document.
+
+        ## STYLE REQUIREMENTS:
+        - Write in natural academic language.
+        - Use bold subheadings to separate topics logically.
+        - Ensure decent spacing after each topic and summary.
+        - Be structured and highly readable.
+        - Explain important parts briefly but clearly.
+        - Highlight key technical aspects, results, strengths, and weaknesses.
+        - ALWAYS extract EXACT page numbers for any mentioned diagrams or images.
+        - Do NOT repeat content.
+        - Do NOT summarize page by page.
+        - Focus only on meaningful insights.
+
+        ## REQUIRED FORMAT (FOLLOW EXACTLY IN HTML):
+        Output the detailed summary strictly in HTML format using '<h3>' for the main section topics, and '<p>' for the descriptive paragraphs under them. If you need to list items, you may use '<ul>' and '<li>', but the primary structure MUST be headings and well-spaced paragraphs. Use '<strong>' to highlight key concepts within paragraphs. Use '<br/>' or margins for spacing between sections to ensure they are not congested.
+
+        ## OUTPUT REQUIREMENTS(JSON):
+        1. **summary**: A succinct 1-2 paragraph high-level textual overview.
+        2. **processedContent**: The structured HTML layout described above.
+           - VERY TOP OF HTML: Output a metadata block containing extracted info EXACTLY like this:
+             <div class="report-metadata">
+               <p><strong>Document: </strong> <span class="badge">SHORT TAG (e.g., MINOR REPORT)</span></p>
+               <p><strong>Title: </strong> Full Title of the Project/Report</p>
+               <p><strong>Type: </strong> The type of report (e.g., Academic Paper, Project Report)</p>
+               <p><strong>Length: </strong> Approximate page length or word count</p>
+             </div>
+             <hr />
+           - Next, output your analysis sections. Example structure:
+             <h3>1. <strong>Executive Overview</strong></h3>
+             <p>The report presents...</p>
+             <p>The system enables:</p>
+             <ul>
+               <li>item 1</li>
+               <li>item 2</li>
+             </ul>
+             <br/>
+             <h3>2. <strong>System Architecture</strong></h3>
+             <p>The application is built using...</p>
+             <br/>
+           - If there are diagrams, charts, or figures labeled inside the uploaded report, extract their descriptions, labels, AND exact page numbers. Provide them exactly as: '<p class="diagram-note">🖼️ <strong>DIAGRAM/IMAGE:</strong> [Label/Description] <strong>(Page X)</strong></p>' UNDER the relevant section.
+           - CRITICAL: Output ONLY valid HTML inside this string. Do NOT use markdown.
+        3. **score**: Always 100.
+        4. **metadata**: Set 'type' to 'Report'.
+        5. **issues**: Empty array.
+        6. **correctedContent**: Null.
+
+        ## DOCUMENT CONTENT:
+        \${isPDF ? pdfTextContent : extractedText}
+      `;
+
+      const contentParts: any[] = [{ text: promptText }];
+      if (isPDF) {
+        contentParts.push({
+          inlineData: {
+            data: fileBuffer.toString("base64"),
+            mimeType: "application/pdf"
+          }
+        });
+      }
+
+      const result = await generateWithRetry(model, contentParts);
+
+      const responseText = result.response.text().replace(/\`\`\`json|\`\`\`/g, "").trim();
+      const parsed = JSON.parse(responseText);
+
+      return {
+        success: true,
+        score: 100,
+        summary: parsed.summary,
+        issues: [],
+        processedContent: parsed.processedContent,
+        analysisType: "report_summary",
+        geminiModel: "gemini-2.5-flash",
+        metadata: { type: 'Report', isLargeDocument },
+        correctedContent: "",
+        images: [],
+        visualAnalysisPerformed: isPDF
+      };
+    }
+
     // CRITICAL: Enhanced prompt for custom format enforcement
     const promptText = `
       # DOCUMENT FORMATTING AUDITOR - ${isCustomFormat ? `⛔ ${formatType.toUpperCase()} FORMAT ENFORCEMENT ⛔` : 'Standard Analysis'}
       
       ## YOUR MISSION:
-      You are a STRICT formatting compliance auditor. Your PRIMARY task is to verify if the document matches ALL user requirements.
+      You are a STRICT formatting compliance auditor.Your PRIMARY task is to verify if the document matches ALL user requirements.
       
       ## DOCUMENT INFO:
-      - File: ${fileName}
-      - Format Type: ${formatType}
+- File: ${fileName}
+- Format Type: ${formatType}
       ${isCustomFormat ? '- ⚠️ STRICT FORMAT: ENFORCE ALL REQUIREMENTS ⚠️' : '- Standard Format: Basic checks'}
       ${isLargeDocument ? '- ⚠️ LARGE DOCUMENT DETECTED: SKIP FULL TEXT REWRITE ⚠️' : ''}
       
@@ -620,9 +710,10 @@ export const analyzeDocumentWithAI = async (
       ${Object.keys(requirements).length > 0 ? `
       ## 📋 PARSED REQUIREMENTS - MUST ENFORCE:
       ${Object.entries(requirements).map(([key, value]) => `- **${key.toUpperCase()}**: "${value}"`).join('\n')}
-      ` : ''}
+      ` : ''
+      }
       
-      ## 🚨 CRITICAL ENFORCEMENT RULES (For Custom Format Only):
+      ## 🚨 CRITICAL ENFORCEMENT RULES(For Custom Format Only):
       
       ${requirements.font ? `
       ### 1. FONT COMPLIANCE - IMMEDIATE FAIL IF VIOLATED:
@@ -643,51 +734,55 @@ export const analyzeDocumentWithAI = async (
         }
         \`\`\`
         (NOTE: Return a tight bounding box around the first instance of the wrong font)
-      ` : ''}
+      ` : ''
+      }
       
       ${requirements.margins ? `
       ### 2. MARGIN COMPLIANCE:
       - **REQUIRED MARGINS**: ${requirements.margins}
       - **ACTION**: Measure white space around edges. Flag any significant deviation.
       - **SEVERITY**: Major
-      ` : ''}
+      ` : ''
+      }
       
       ${requirements.spacing ? `
       ### 3. LINE SPACING COMPLIANCE:
       - **REQUIRED SPACING**: ${requirements.spacing}
       - **ACTION**: Check consistency of line spacing throughout document.
       - **SEVERITY**: Major if inconsistent with requirement
-      ` : ''}
+      ` : ''
+      }
       
       ${requirements.alignment ? `
       ### 4. ALIGNMENT COMPLIANCE:
       - **REQUIRED ALIGNMENT**: ${requirements.alignment}
       - **ACTION**: Check if main text follows required alignment. Flag mixed alignments.
       - **SEVERITY**: Medium
-      ` : ''}
+      ` : ''
+      }
       
-      ## 📊 SCORING SYSTEM (STRICT):
-      - Base Score: 100
+      ## 📊 SCORING SYSTEM(STRICT):
+- Base Score: 100
       ${requirements.font ? '- Font mismatch: -40 points (CRITICAL)' : ''}
       ${requirements.margins ? '- Margin violation: -20 points (MAJOR)' : ''}
       ${requirements.spacing ? '- Spacing violation: -20 points (MAJOR)' : ''}
       ${requirements.alignment ? '- Alignment violation: -10 points (MINOR)' : ''}
-      - Grammar/Spelling/Punctuation: -5 points EACH (NO LIMIT)
+- Grammar / Spelling / Punctuation: -5 points EACH(NO LIMIT)
       
       ## 🎯 PRIORITY ORDER:
-      1. ${requirements.font ? `FONT (${requirements.font}) - CHECK FIRST` : 'Formatting issues'}
-      2. ${requirements.margins ? `MARGINS (${requirements.margins})` : 'Layout issues'}
-      3. ${requirements.spacing ? `SPACING (${requirements.spacing})` : 'Spacing consistency'}
-      4. Grammar/Spelling (MUST BE INCLUDED even if format matches)
+1. ${requirements.font ? `FONT (${requirements.font}) - CHECK FIRST` : 'Formatting issues'}
+2. ${requirements.margins ? `MARGINS (${requirements.margins})` : 'Layout issues'}
+3. ${requirements.spacing ? `SPACING (${requirements.spacing})` : 'Spacing consistency'}
+4. Grammar / Spelling(MUST BE INCLUDED even if format matches)
       
       ## ⚠️ CRITICAL INSTRUCTIONS:
-      1. **LIST EVERY ISSUE**: Do not summarize. If there are 50 grammar errors, list all 50 unique issues.
-      2. **MERGE ISSUES**: Your final "issues" array must contain BOTH Custom Format violations AND standard Grammar/Spelling mistakes. Do not ignore standard errors.
-      3. **IMAGE PRESERVATION**: If the document contains images, charts, diagrams, or visual elements:
-         - Identify each image and its approximate location
-         - In the correctedContent, insert a placeholder marker: [IMAGE: Brief description | Position: top/center/bottom | Page: N]
-         - Preserve the logical flow of text around images
-         - Do NOT describe images as part of the main text - use only markers
+1. ** LIST EVERY ISSUE **: Do not summarize.If there are 50 grammar errors, list all 50 unique issues.
+      2. ** MERGE ISSUES **: Your final "issues" array must contain BOTH Custom Format violations AND standard Grammar / Spelling mistakes.Do not ignore standard errors.
+      3. ** IMAGE PRESERVATION **: If the document contains images, charts, diagrams, or visual elements:
+- Identify each image and its approximate location
+  - In the correctedContent, insert a placeholder marker: [IMAGE: Brief description | Position: top / center / bottom | Page: N]
+    - Preserve the logical flow of text around images
+      - Do NOT describe images as part of the main text - use only markers
       ${!isLargeDocument ? `4. **FULL CORRECTION**: You must provide the "correctedContent" field. This must be the COMPLETE document text with ALL corrections applied (Grammar + Format + Image markers). Do not include markdown formatting, just the plain text with [IMAGE:...] markers where images appear.` : `4. **SKIP FULL CORRECTION**: Document is too large. Do NOT provide "correctedContent". Return null or empty string for that field.`}
       
       ## 📝 SUMMARY FORMAT:
@@ -697,22 +792,22 @@ export const analyzeDocumentWithAI = async (
         'Standard analysis summary.'
       }
       
-      ## 📄 OUTPUT FORMAT (MUST BE VALID JSON):
-      {
-        "score": number (0-100),
-        "summary": "Summary including custom format compliance status",
-        "issues": [
-          {
-            "id": "unique-id-1",
-            "type": "Typography" | "Layout" | "Margin" | "Spacing" | "Alignment" | "Grammar" | "Spelling",
-            "severity": "Critical" | "Major" | "Minor",
-            "description": "Clear, specific description",
-            "suggestion": "Actionable fix suggestion",
-            "location": "Where issue occurs (e.g., 'Pages 1-3', 'Entire document')",
-            "pageNumber": number,
-            "position": { "top": number, "left": number, "width": number, "height": number }
-          }
-        ],
+      ## 📄 OUTPUT FORMAT(MUST BE VALID JSON):
+{
+  "score": number(0 - 100),
+    "summary": "Summary including custom format compliance status",
+      "issues": [
+        {
+          "id": "unique-id-1",
+          "type": "Typography" | "Layout" | "Margin" | "Spacing" | "Alignment" | "Grammar" | "Spelling",
+          "severity": "Critical" | "Major" | "Minor",
+          "description": "Clear, specific description",
+          "suggestion": "Actionable fix suggestion",
+          "location": "Where issue occurs (e.g., 'Pages 1-3', 'Entire document')",
+          "pageNumber": number,
+          "position": { "top": number, "left": number, "width": number, "height": number }
+        }
+      ],
         "images": [
           {
             "id": "img-1",
@@ -723,29 +818,29 @@ export const analyzeDocumentWithAI = async (
             "afterText": "Text snippet after image (optional)"
           }
         ],
-        "metadata": { ... },
-        "correctedContent": ${!isLargeDocument ? '"FULL CORRECTED TEXT HERE with [IMAGE:...] markers (Mandatory)"' : 'null'}
-      }
+          "metadata": { ... },
+  "correctedContent": ${!isLargeDocument ? '"FULL CORRECTED TEXT HERE with [IMAGE:...] markers (Mandatory)"' : 'null'}
+}
       
-      - **ISOLATE THE MISTAKE**: If a word is misspelled, box ONLY that word.
+      - ** ISOLATE THE MISTAKE **: If a word is misspelled, box ONLY that word.
       - For custom format: FONT CHECK IS MANDATORY if specified
       
       ## 🏷️ METADATA EXTRACTION:
       Identify and extract the following if available:
-      - **Company/Entity Name**: Who is this document about/from?
-      - **Document Date**: Explicit or implied date (YYYY-MM-DD or text)
-      - **Document Type**: e.g., "Financial Report", "Contract", "Resume", "Memo"
-      
-      - Return VALID JSON only.
+      - ** Company / Entity Name **: Who is this document about / from ?
+      - ** Document Date **: Explicit or implied date(YYYY - MM - DD or text)
+  - ** Document Type **: e.g., "Financial Report", "Contract", "Resume", "Memo"
+
+    - Return VALID JSON only.
       ${isPDF ? '"extractedContent": "FULL TEXT OF THE DOCUMENT (If visual analysis was required, transcribe the text here)",' : ''}
-    `;
+`;
 
     const contentParts: any[] = [
       { text: promptText }
     ];
 
     if (!isPDF && extractedText) {
-      contentParts.push({ text: `DOCUMENT CONTENT:\n${extractedText}` });
+      contentParts.push({ text: `DOCUMENT CONTENT: \n${extractedText} ` });
     }
 
     // For PDFs, send as visual data to Gemini 1.5 (CRITICAL for font detection)
@@ -781,7 +876,7 @@ export const analyzeDocumentWithAI = async (
         }
 
         if (templateText && templateText.length > 0) {
-          contentParts.push({ text: `CUSTOM TEMPLATE CONTENT (Follow this structure/style):\n${templateText}` });
+          contentParts.push({ text: `CUSTOM TEMPLATE CONTENT(Follow this structure / style): \n${templateText} ` });
           console.log("✅ Added custom template text to prompt");
         }
       } catch (err) {
@@ -790,11 +885,12 @@ export const analyzeDocumentWithAI = async (
       }
     }
 
-    console.log(`🔍 [AI Service] Analyzing with Gemini 2.5 Flash: ${fileName}`);
-    console.log(`📋 Custom Format: ${isCustomFormat}, Requirements: ${Object.keys(requirements).length}`);
+    console.log(`🔍[AI Service] Analyzing with Gemini 2.5 Flash: ${fileName} `);
+    console.log(`📋 Custom Format: ${isCustomFormat}, Requirements: ${Object.keys(requirements).length} `);
 
     const result = await generateWithRetry(model, contentParts);
-    let responseText = result!.response.text().replace(/```json|```/g, "").trim();
+
+    let responseText = result!.response.text().replace(/```json | ```/g, "").trim();
 
     // Parse response
     let parsed;
@@ -809,7 +905,7 @@ export const analyzeDocumentWithAI = async (
     // Process issues with proper typing
     const enhancedIssues: Issue[] = (parsed.issues || []).map((issue: any, index: number) => ({
       ...issue,
-      id: issue.id || `issue-${Date.now()}-${index}`,
+      id: issue.id || `issue - ${Date.now()} -${index} `,
       location: issue.location || 'Document',
       pageNumber: issue.pageNumber || 1,
       position: issue.position || { top: 10, left: 10, width: 80, height: 10 },
@@ -859,7 +955,7 @@ export const analyzeDocumentWithAI = async (
         isLargeDocument: isLargeDocument
       },
       correctedContent: parsed.correctedContent || (isLargeDocument ? null : extractedText), // Return null if large (to trigger UI warning) or original if small but missing
-      images: parsed.images || [] // Include detected images from AI response
+      images: parsed.images || []
     };
 
   } catch (error: any) {
@@ -922,7 +1018,7 @@ export const generateCorrectedDocument = async (
   return {
     buffer: correctedBuffer,
     mimeType: 'application/pdf',
-    fileName: `corrected_${fileName}`
+    fileName: `corrected_${fileName} `
   };
 };
 
@@ -940,24 +1036,24 @@ export const generateCorrectedText = async (
 
     const prompt = `
       You are an expert Document Editor.
-      
-      TASK:
+
+  TASK:
       Rewrite the following document content to fix the identified issues.
       
       ISSUES TO FIX:
       ${issues.map((i, idx) => `${idx + 1}. [${i.type}] ${i.description}: ${i.suggestion}`).join('\n')}
-      
-      INSTRUCTIONS:
-      1. Apply all fixes described above.
-      2. Fix any other obvious grammar/spelling errors.
+
+INSTRUCTIONS:
+1. Apply all fixes described above.
+      2. Fix any other obvious grammar / spelling errors.
       3. Maintain the original structure and tone as much as possible.
-      4. RETURN ONLY THE CORRECTED TEXT. Do not add markdown blocks or comments.
+      4. RETURN ONLY THE CORRECTED TEXT.Do not add markdown blocks or comments.
       
       DOCUMENT CONTENT:
-      """
+"""
       ${content}
-      """
-    `;
+"""
+  `;
 
     const result = await model.generateContent(prompt);
     return result.response.text();

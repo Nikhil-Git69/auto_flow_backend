@@ -86,14 +86,16 @@ router.post("/upload-file", (req: Request, res: Response) => {
 
       console.log("DEBUG: formatType received:", req.body.formatType);
       console.log("DEBUG: templateFile exists:", !!files?.templateFile?.[0]);
-      // 3. Call AI Service (Passes all 6 required arguments)
+      // 3. Call AI Service (Passes all required arguments)
+      const analysisId = `analysis-${uuidv4()}`;
       const analysisResult = await analyzeDocumentWithAI(
         documentFile.buffer,
         documentFile.originalname,
         documentFile.mimetype,
         formatType,
         formatRequirements,
-        templateFile
+        templateFile,
+        analysisId
       );
 
       if (!analysisResult.success) {
@@ -136,7 +138,7 @@ router.post("/upload-file", (req: Request, res: Response) => {
 
       // 4. Create and Save Analysis Model
       const analysis = new Analysis({
-        analysisId: `analysis-${uuidv4()}`,
+        analysisId: analysisId,
         userId: userId, // Save userId
         fileName: fileName,
         fileSize: documentFile.size,
@@ -163,7 +165,8 @@ router.post("/upload-file", (req: Request, res: Response) => {
         uploadDate: new Date(),
         processedContent: analysisResult.processedContent,
         correctedContent: correctedContent, // Store corrected text
-        metadata: analysisResult.metadata // Store extracted metadata
+        metadata: analysisResult.metadata, // Store extracted metadata
+        images: analysisResult.images || [] // Store extracted figures
       });
 
       await analysis.save();
@@ -273,12 +276,64 @@ router.get("/", async (req: Request, res: Response) => {
   }
 });
 
+// =========== DOWNLOAD ORIGINAL DOCUMENT ===========
+router.get("/:id/download", async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    // Ensure id is a string, not an array
+    const analysisId = Array.isArray(id) ? id[0] : id;
+
+    if (!analysisId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Analysis ID is required'
+      });
+    }
+
+    // Check if the ID is a valid MongoDB ObjectId
+    const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(analysisId);
+
+    let query;
+    if (isValidObjectId) {
+      // If it's a valid ObjectId, search both _id and analysisId
+      query = { $or: [{ _id: id }, { analysisId: id }] };
+    } else {
+      // If it's not a valid ObjectId (e.g., "analysis-xxx"), only search analysisId
+      query = { analysisId: id };
+    }
+
+    // Find analysis and explicitly select the fileData field (which is select: false by default)
+    const analysis = await Analysis.findOne(query).select('+fileData');
+
+    if (!analysis || !(analysis as any).fileData) {
+      return res.status(404).json({ success: false, error: "Original file not found" });
+    }
+
+    // Set headers to force download with the original filename
+    res.setHeader('Content-Type', analysis.fileType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${analysis.fileName}"`);
+
+    // Send the raw buffer
+    res.send((analysis as any).fileData);
+  } catch (err: any) {
+    console.error("Error downloading file:", err);
+    res.status(500).json({ success: false, error: "Failed to download file", details: err.message });
+  }
+});
+
 // =========== REMAINING GETTERS ===========
 router.get("/id/:id", async (req: Request, res: Response) => {
   try {
-    const analysis = await Analysis.findOne({
-      $or: [{ _id: req.params.id }, { analysisId: req.params.id }]
-    });
+    const { id } = req.params;
+    const analysisId = Array.isArray(id) ? id[0] : id;
+    const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(analysisId);
+
+    const query = isValidObjectId
+      ? { $or: [{ _id: analysisId }, { analysisId: analysisId }] }
+      : { analysisId: analysisId };
+
+    const analysis = await Analysis.findOne(query);
     if (!analysis) return res.status(404).json({ success: false, error: "Not found" });
     res.json({ success: true, data: analysis });
   } catch (err: any) {

@@ -31,8 +31,10 @@ export interface IBoard {
 export interface IWorkspace extends Document {
     name: string;
     description?: string;
+    category: string;
     accessCode: string;
     ownerId: mongoose.Schema.Types.ObjectId;
+    coAdmins: mongoose.Schema.Types.ObjectId[];
     members: mongoose.Schema.Types.ObjectId[];
     documents: {
         analysisId: string;
@@ -48,7 +50,7 @@ export interface IWorkspace extends Document {
         processedContent: string;
         correctedContent?: string;
         correctedPdfBase64?: string;
-        formatType?: string; // concept, default, custom
+        formatType?: string;
         status?: 'Pending' | 'Accepted' | 'Rejected';
         comments?: {
             id: string;
@@ -60,7 +62,15 @@ export interface IWorkspace extends Document {
             updatedAt: Date;
         }[];
     }[];
-    boards: IBoard[]; // New field
+    adminUploads: {
+        id: string;
+        fileName: string;
+        fileSize: number;
+        fileType: string;
+        uploadDate: Date;
+        uploaderName: string;
+    }[];
+    boards: IBoard[];
     createdAt: Date;
     updatedAt: Date;
 }
@@ -75,6 +85,11 @@ const WorkspaceSchema: Schema = new Schema({
         type: String,
         trim: true
     },
+    category: {
+        type: String,
+        trim: true,
+        default: 'General'
+    },
     accessCode: {
         type: String,
         required: true,
@@ -87,6 +102,10 @@ const WorkspaceSchema: Schema = new Schema({
         ref: 'User',
         required: true
     },
+    coAdmins: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    }],
     members: [{
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
@@ -158,6 +177,14 @@ const WorkspaceSchema: Schema = new Schema({
             createdAt: { type: Date, default: Date.now },
             updatedAt: { type: Date, default: Date.now }
         }]
+    }],
+    adminUploads: [{
+        id: String,
+        fileName: String,
+        fileSize: Number,
+        fileType: String,
+        uploadDate: { type: Date, default: Date.now },
+        uploaderName: String
     }]
 }, {
     timestamps: true

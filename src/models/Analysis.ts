@@ -40,6 +40,12 @@ export interface IAnalysis extends Document {
     date?: string;
     type?: string;
   };
+  images?: {
+    page: number;
+    category: string;
+    title: string;
+    filename: string;
+  }[];
   analyzedAt: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -75,7 +81,7 @@ const AnalysisSchema: Schema = new Schema({
   // NEW: Format customization fields
   formatType: {
     type: String,
-    enum: ['default', 'custom', 'professional', 'academic', 'legal', 'creative', 'resume', 'concept'],
+    enum: ['default', 'custom', 'professional', 'academic', 'legal', 'creative', 'resume', 'concept', 'report'],
     default: 'default'
   },
   formatRequirements: {
@@ -127,6 +133,13 @@ const AnalysisSchema: Schema = new Schema({
     date: { type: String },
     type: { type: String }
   },
+  images: [{
+    page: { type: Number },
+    category: { type: String },
+    title: { type: String },
+    filename: { type: String },
+    path: { type: String }
+  }],
   status: {
     type: String,
     enum: ["pending", "completed", "failed"],
