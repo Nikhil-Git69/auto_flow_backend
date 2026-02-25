@@ -140,6 +140,7 @@ app.use("/users", userRoutes);
 // Serve extracted figures and avatars statically
 app.use("/uploads/figures", express.static(path.join(__dirname, "../uploads/figures")));
 app.use("/uploads/avatars", express.static(path.join(__dirname, "../uploads/avatars")));
+app.use("/uploads/banners", express.static(path.join(__dirname, "../uploads/banners")));
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

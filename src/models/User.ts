@@ -11,6 +11,7 @@ export interface IUser extends Document {
   studentId?: string;
   department?: string;
   logoUrl?: string;
+  bannerUrl?: string;
   isActive: boolean;
   isEmailVerified: boolean;
   lastLogin?: Date;
@@ -54,6 +55,7 @@ const UserSchema: Schema = new Schema({
   studentId: { type: String },
   department: { type: String },
   logoUrl: { type: String },
+  bannerUrl: { type: String },
   isActive: { type: Boolean, default: true },
   isEmailVerified: { type: Boolean, default: false },
   lastLogin: { type: Date }

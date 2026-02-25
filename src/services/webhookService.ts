@@ -396,3 +396,25 @@ export const notifyWelcome = async (data: {
         signupAt: data.signupAt,
     });
 };
+// Notify user with OTP for password reset
+export const notifyPasswordReset = async (data: {
+    userId: string;
+    userName: string;
+    userEmail: string;
+    otp: string;
+    expiresInMinutes: number;
+}) => {
+    await sendWebhook(getWebhookUrl('N8N_WEBHOOK_EMAIL_VERIFICATION'), {
+        eventType: 'password_reset_request',
+        timestamp: new Date().toISOString(),
+        user: {
+            id: data.userId,
+            name: data.userName,
+            email: data.userEmail,
+        },
+        verification: { // Changed from 'reset' to 'verification' to reuse n8n nodes
+            otp: data.otp,
+            expiresInMinutes: data.expiresInMinutes,
+        },
+    });
+};

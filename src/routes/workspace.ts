@@ -20,7 +20,9 @@ import {
     editDocumentComment,
     deleteDocumentComment,
     promoteToCoAdmin,
-    demoteToMember
+    demoteToMember,
+    archiveWorkspace,
+    unarchiveWorkspace
 } from '../controller/workspaceController';
 import {
     uploadAdminFile,
@@ -42,6 +44,8 @@ router.get('/', auth, getAllWorkspaces);
 router.get('/:id', auth, getWorkspaceById);
 router.patch('/:id', auth, updateWorkspace);
 router.post('/join', auth, joinWorkspace);
+router.patch('/:id/archive', auth, archiveWorkspace);
+router.patch('/:id/unarchive', auth, unarchiveWorkspace);
 router.delete('/:id', auth, deleteWorkspace);
 
 // Documents

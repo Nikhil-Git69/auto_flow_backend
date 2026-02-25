@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import User from '../models/User';
+import bcrypt from 'bcryptjs';
 
 export const updateProfile = async (req: Request, res: Response) => {
     try {
@@ -14,7 +15,8 @@ export const updateProfile = async (req: Request, res: Response) => {
                     ...(name && { name }),
                     ...(collegeName && { collegeName }),
                     ...(department && { department }),
-                    ...(studentId && { studentId })
+                    ...(studentId && { studentId }),
+                    ...(req.body.hasOwnProperty('bannerUrl') && { bannerUrl: req.body.bannerUrl })
                 }
             },
             { new: true, runValidators: true }
@@ -33,6 +35,7 @@ export const updateProfile = async (req: Request, res: Response) => {
                 collegeName: updatedUser.collegeName,
                 department: updatedUser.department,
                 logoUrl: updatedUser.logoUrl,
+                bannerUrl: updatedUser.bannerUrl,
                 studentId: updatedUser.studentId,
                 role: updatedUser.role
             }
@@ -88,6 +91,40 @@ export const uploadAvatar = async (req: Request, res: Response) => {
     }
 };
 
+export const uploadBanner = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+
+        if (!req.file) {
+            return res.status(400).json({ success: false, error: 'No image file provided' });
+        }
+
+        const bannerUrl = `/uploads/banners/${req.file.filename}`;
+
+        const updatedUser = await User.findByIdAndUpdate(
+            id,
+            { $set: { bannerUrl } },
+            { new: true }
+        );
+
+        if (!updatedUser) {
+            return res.status(404).json({ success: false, error: 'User not found' });
+        }
+
+        res.status(200).json({
+            success: true,
+            message: 'Banner updated successfully',
+            data: {
+                bannerUrl: updatedUser.bannerUrl
+            }
+        });
+
+    } catch (error: any) {
+        console.error('Upload banner error:', error);
+        res.status(500).json({ success: false, error: error.message || 'Server error' });
+    }
+};
+
 export const getProfile = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
@@ -106,6 +143,7 @@ export const getProfile = async (req: Request, res: Response) => {
                 collegeName: user.collegeName,
                 department: user.department,
                 logoUrl: user.logoUrl,
+                bannerUrl: user.bannerUrl,
                 studentId: user.studentId,
                 role: user.role,
                 createdAt: user.createdAt
@@ -116,3 +154,67 @@ export const getProfile = async (req: Request, res: Response) => {
         res.status(500).json({ success: false, error: error.message || 'Server error' });
     }
 }
+
+export const deleteUser = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+
+        const user = await User.findById(id);
+        if (!user) {
+            return res.status(404).json({ success: false, error: 'User not found' });
+        }
+
+        // Delete the user from the database
+        await User.findByIdAndDelete(id);
+
+        res.status(200).json({
+            success: true,
+            message: 'User account and associated data deleted successfully'
+        });
+
+    } catch (error: any) {
+        console.error('Delete user error:', error);
+        res.status(500).json({ success: false, error: error.message || 'Server error' });
+    }
+};
+
+export const changePassword = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const { currentPassword, newPassword } = req.body;
+
+        if (!currentPassword || !newPassword) {
+            return res.status(400).json({ success: false, error: 'Current and new passwords are required' });
+        }
+
+        const user = await User.findById(id).select('+password');
+        if (!user) {
+            return res.status(404).json({ success: false, error: 'User not found' });
+        }
+
+        // Verify current password
+        const isMatch = await user.comparePassword(currentPassword);
+        if (!isMatch) {
+            return res.status(401).json({ success: false, error: 'Incorrect current password' });
+        }
+
+        // Prevent use of same password
+        if (currentPassword === newPassword) {
+            return res.status(400).json({ success: false, error: 'New password cannot be the same as your current password' });
+        }
+
+        // Hash new password
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+        user.password = hashedPassword;
+        await user.save();
+
+        res.status(200).json({
+            success: true,
+            message: 'Password changed successfully'
+        });
+
+    } catch (error: any) {
+        console.error('Change password error:', error);
+        res.status(500).json({ success: false, error: error.message || 'Server error' });
+    }
+};

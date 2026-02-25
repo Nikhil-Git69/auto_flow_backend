@@ -82,7 +82,22 @@ export const updateWorkspace = async (req: AuthRequest, res: Response) => {
 export const getAllWorkspaces = async (req: AuthRequest, res: Response) => {
     try {
         const userId = req.user.userId;
-        const workspaces = await Workspace.find({ members: userId })
+        const { archived } = req.query;
+
+        const filter: any = { members: userId };
+
+        if (archived === 'true') {
+            filter.isArchived = true;
+        } else if (archived === 'false') {
+            filter.isArchived = { $ne: true };
+        }
+        // If archived param is missing, we could default to false to hide archived ones, 
+        // but let's default to false to match WhatsApp behavior (hide archived by default).
+        if (archived === undefined) {
+            filter.isArchived = { $ne: true };
+        }
+
+        const workspaces = await Workspace.find(filter)
             .sort({ updatedAt: -1 });
 
         res.status(200).json({
@@ -1037,6 +1052,48 @@ export const getWorkspaceBoard = async (req: AuthRequest, res: Response) => {
         }
 
         res.status(200).json({ success: true, data: workspace.boards });
+    } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+export const archiveWorkspace = async (req: AuthRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.userId;
+
+        const workspace = await Workspace.findById(id);
+        if (!workspace) return res.status(404).json({ success: false, error: 'Workspace not found' });
+
+        if (workspace.ownerId.toString() !== userId) {
+            return res.status(403).json({ success: false, error: 'Only the workspace owner can archive it' });
+        }
+
+        workspace.isArchived = true;
+        await workspace.save();
+
+        res.status(200).json({ success: true, message: 'Workspace archived', data: workspace });
+    } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+export const unarchiveWorkspace = async (req: AuthRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.userId;
+
+        const workspace = await Workspace.findById(id);
+        if (!workspace) return res.status(404).json({ success: false, error: 'Workspace not found' });
+
+        if (workspace.ownerId.toString() !== userId) {
+            return res.status(403).json({ success: false, error: 'Only the workspace owner can unarchive it' });
+        }
+
+        workspace.isArchived = false;
+        await workspace.save();
+
+        res.status(200).json({ success: true, message: 'Workspace unarchived', data: workspace });
     } catch (error: any) {
         res.status(500).json({ success: false, error: error.message });
     }

@@ -71,6 +71,7 @@ export interface IWorkspace extends Document {
         uploaderName: string;
     }[];
     boards: IBoard[];
+    isArchived: boolean;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -185,7 +186,8 @@ const WorkspaceSchema: Schema = new Schema({
         fileType: String,
         uploadDate: { type: Date, default: Date.now },
         uploaderName: String
-    }]
+    }],
+    isArchived: { type: Boolean, default: false }
 }, {
     timestamps: true
 });

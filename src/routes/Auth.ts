@@ -3,7 +3,7 @@ import { Router, Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import User from "../models/User";
 import bcrypt from "bcryptjs";
-import { notifyEmailVerification, notifyWelcome } from '../services/webhookService';
+import { notifyEmailVerification, notifyWelcome, notifyPasswordReset } from '../services/webhookService';
 import { generateOtp, verifyOtp, clearOtp } from '../services/otpService';
 
 const router = Router();
@@ -19,6 +19,7 @@ const buildUserResponse = (user: any) => ({
   studentId: user.studentId,
   department: user.department,
   logoUrl: user.logoUrl,
+  bannerUrl: user.bannerUrl,
   isActive: user.isActive,
   isEmailVerified: user.isEmailVerified,
   lastLogin: user.lastLogin,
@@ -303,6 +304,124 @@ router.get("/me", async (req: Request, res: Response) => {
       return res.status(401).json({ success: false, error: "Invalid token" });
     }
     res.status(500).json({ success: false, error: "Failed to get profile", details: err.message });
+  }
+});
+
+/**
+ * POST /auth/forgot-password
+ * Generates an OTP for password reset and sends it via email.
+ */
+router.post("/forgot-password", async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ success: false, error: "Email is required" });
+
+    const user = await User.findOne({ email });
+
+    // Only send the webhook if the user actually exists
+    if (user) {
+      const otp = generateOtp(email);
+      try {
+        await notifyPasswordReset({
+          userId: user._id.toString(),
+          userName: user.name,
+          userEmail: user.email,
+          otp,
+          expiresInMinutes: 10
+        });
+      } catch (webhookErr) {
+        console.error('Password reset OTP webhook error:', webhookErr);
+      }
+    }
+
+    // Always return success to avoid user enumeration (Information Leakage)
+    res.status(200).json({
+      success: true,
+      message: "If an account exists with this email, a reset code has been sent to your email."
+    });
+
+  } catch (err: any) {
+    console.error("Forgot password error:", err);
+    res.status(500).json({ success: false, error: "Failed to process request", details: err.message });
+  }
+});
+
+/**
+ * POST /auth/verify-reset-otp
+ * Verifies if the provided OTP is valid for the given email.
+ */
+router.post("/verify-reset-otp", async (req: Request, res: Response) => {
+  try {
+    const { email, otp } = req.body;
+    if (!email || !otp) return res.status(400).json({ success: false, error: "Email and OTP are required" });
+
+    const verificationResult = verifyOtp(email, otp);
+    if (verificationResult === 'valid') {
+      return res.status(200).json({ success: true, message: "OTP is valid" });
+    } else {
+      return res.status(400).json({
+        success: false,
+        error: verificationResult === 'expired' ? "OTP has expired" : "Invalid OTP code",
+        code: verificationResult === 'expired' ? 'OTP_EXPIRED' : 'OTP_INVALID'
+      });
+    }
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: "Failed to verify OTP" });
+  }
+});
+
+/**
+ * POST /auth/reset-password
+ * Verifies OTP and updates user's password.
+ */
+router.post("/reset-password", async (req: Request, res: Response) => {
+  try {
+    const { email, otp, newPassword } = req.body;
+
+    if (!email || !otp || !newPassword) {
+      return res.status(400).json({ success: false, error: "Email, OTP and new password are required" });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ success: false, error: "Password must be at least 6 characters" });
+    }
+
+    const verificationResult = verifyOtp(email, otp);
+
+    if (verificationResult === 'expired') {
+      return res.status(400).json({ success: false, error: "OTP has expired. Please request a new one.", code: 'OTP_EXPIRED' });
+    }
+    if (verificationResult === 'invalid') {
+      return res.status(400).json({ success: false, error: "Invalid OTP. Please try again.", code: 'OTP_INVALID' });
+    }
+
+    const user = await User.findOne({ email }).select('+password');
+    if (!user) {
+      return res.status(404).json({ success: false, error: "User not found" });
+    }
+
+    // Prevent using the same password
+    const isSamePassword = await user.comparePassword(newPassword);
+    if (isSamePassword) {
+      return res.status(400).json({ success: false, error: "New password cannot be the same as your current password" });
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    user.password = hashedPassword;
+    await user.save();
+
+    // Clear OTP after successful reset
+    clearOtp(email);
+
+    res.status(200).json({
+      success: true,
+      message: "Password reset successful! You can now log in with your new password."
+    });
+
+  } catch (err: any) {
+    console.error("Reset password error:", err);
+    res.status(500).json({ success: false, error: "Failed to reset password", details: err.message });
   }
 });
 

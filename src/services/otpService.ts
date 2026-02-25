@@ -22,7 +22,6 @@ export const generateOtp = (email: string): string => {
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
     otpStore.set(email.toLowerCase(), { otp, expiresAt });
-    console.log(`🔑 OTP generated for ${email}: ${otp} (expires at ${expiresAt.toISOString()})`);
     return otp;
 };
 
@@ -32,12 +31,19 @@ export const generateOtp = (email: string): string => {
  */
 export const verifyOtp = (email: string, otp: string): 'valid' | 'expired' | 'invalid' => {
     const entry = otpStore.get(email.toLowerCase());
-    if (!entry) return 'invalid';
+
+    if (!entry) {
+        return 'invalid';
+    }
+
     if (new Date() > entry.expiresAt) {
         otpStore.delete(email.toLowerCase());
         return 'expired';
     }
-    if (entry.otp !== otp.trim()) return 'invalid';
+
+    if (entry.otp !== otp.trim()) {
+        return 'invalid';
+    }
     return 'valid';
 };
 
