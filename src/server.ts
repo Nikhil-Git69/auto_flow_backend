@@ -25,6 +25,7 @@ import analysisRoutes from "./routes/analysis";
 import authRoutes from "./routes/Auth";
 import chatRoutes from "./routes/chat";
 import workspaceRoutes from "./routes/workspace";
+import userRoutes from "./routes/user";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 5000
@@ -133,6 +134,12 @@ app.get("/", (_req, res) => {
           <li>📄 GET /analysis/:id - Get analysis by ID</li>
           <li>📄 GET /analysis/stats/:userId - Get user statistics</li>
         </ul>
+        <h3>Users</h3>
+        <ul style="list-style:none;padding:0">
+          <li>👤 GET /users/:id - Get user profile</li>
+          <li>👤 PATCH /users/:id - Update profile</li>
+          <li>👤 POST /users/:id/avatar - Upload avatar</li>
+        </ul>
       </div>
       <div style="margin-top:30px;font-size:0.9em;color:#64748b">
         <p>Server running on port ${PORT}</p>
@@ -146,6 +153,12 @@ app.use("/auth", authRoutes);
 app.use("/analysis", analysisRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/workspace", workspaceRoutes);
+app.use("/users", userRoutes);
+
+// Serve extracted figures and avatars statically
+app.use("/uploads/figures", express.static(path.join(__dirname, "../uploads/figures")));
+app.use("/uploads/avatars", express.static(path.join(__dirname, "../uploads/avatars")));
+app.use("/uploads/banners", express.static(path.join(__dirname, "../uploads/banners")));
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

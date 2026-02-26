@@ -9,7 +9,9 @@ export interface AuthRequest extends Request {
 
 export const auth = (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-        const token = req.header('Authorization')?.replace('Bearer ', '');
+        const headerToken = req.header('Authorization')?.replace('Bearer ', '');
+        const queryToken = req.query?.token as string | undefined;
+        const token = headerToken || queryToken;
 
         if (!token) {
             return res.status(401).json({

@@ -1,14 +1,24 @@
 import { Response } from 'express';
 import Workspace, { ITask } from '../models/Workspace';
 import { AuthRequest } from '../middleware/auth';
-import { notifyWorkspaceJoined, notifyDocumentUploaded } from '../services/webhookService';
+import { notifyWorkspaceJoined, notifyDocumentUploaded, notifyReportAccepted, notifyReportRejected, notifyTaskProgressUpdated, notifyActivityAdded } from '../services/webhookService';
 import { v4 as uuidv4 } from 'uuid';
 
 
 export const createWorkspace = async (req: AuthRequest, res: Response) => {
     try {
-        const { name, description } = req.body;
+        const { name, description, category } = req.body;
         const userId = req.user.userId;
+
+        // Free-tier limit: max 3 owned workspaces
+        const ownedCount = await Workspace.countDocuments({ ownerId: userId });
+        if (ownedCount >= 3) {
+            return res.status(403).json({
+                success: false,
+                limitReached: true,
+                error: 'Free plan limit reached. You can only create up to 3 workspaces. Upgrade to create more.'
+            });
+        }
 
         // Generate unique access code
         let accessCode = '';
@@ -22,9 +32,10 @@ export const createWorkspace = async (req: AuthRequest, res: Response) => {
         const workspace = new Workspace({
             name,
             description,
+            category: category || 'General',
             accessCode,
             ownerId: userId,
-            members: [userId] // Owner is also a member
+            members: [userId]
         });
 
         await workspace.save();
@@ -41,11 +52,52 @@ export const createWorkspace = async (req: AuthRequest, res: Response) => {
     }
 };
 
+export const updateWorkspace = async (req: AuthRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+        const { name, description, category } = req.body;
+        const userId = req.user.userId;
+
+        const workspace = await Workspace.findById(id);
+        if (!workspace) return res.status(404).json({ success: false, error: 'Workspace not found' });
+
+        const isOwner = workspace.ownerId.toString() === userId;
+        const isCoAdmin = workspace.coAdmins.includes(userId as any);
+
+        if (!isOwner && !isCoAdmin) {
+            return res.status(403).json({ success: false, error: 'Only the workspace owner or co-admins can edit this workspace' });
+        }
+
+        if (name !== undefined) workspace.name = name;
+        if (description !== undefined) workspace.description = description;
+        if (category !== undefined) workspace.category = category;
+
+        await workspace.save();
+        res.status(200).json({ success: true, data: workspace });
+    } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
 export const getAllWorkspaces = async (req: AuthRequest, res: Response) => {
     try {
         const userId = req.user.userId;
-        const workspaces = await Workspace.find({ members: userId })
-            .select('-documents.correctedPdfBase64 -documents.processedContent -documents.correctedContent')
+        const { archived } = req.query;
+
+        const filter: any = { members: userId };
+
+        if (archived === 'true') {
+            filter.isArchived = true;
+        } else if (archived === 'false') {
+            filter.isArchived = { $ne: true };
+        }
+        // If archived param is missing, we could default to false to hide archived ones, 
+        // but let's default to false to match WhatsApp behavior (hide archived by default).
+        if (archived === undefined) {
+            filter.isArchived = { $ne: true };
+        }
+
+        const workspaces = await Workspace.find(filter)
             .sort({ updatedAt: -1 });
 
         res.status(200).json({
@@ -245,7 +297,7 @@ export const addDocument = async (req: AuthRequest, res: Response) => {
             submitterName: userName || 'Unknown User',
             submitterEmail: userEmail || '',
             formatType: document.formatType || 'default',
-            status: 'Pending' // Force status to Pending to avoid validation errors from 'completed' status in Analysis
+            status: 'Pending' // Explicitly set to 'Pending' so it doesn't accidentally inherit 'completed' from the generic Analysis schema
         };
 
         workspace.documents = [documentWithUser, ...workspace.documents];
@@ -363,6 +415,12 @@ export const removeMember = async (req: AuthRequest, res: Response) => {
         workspace.members = workspace.members.filter(
             member => member.toString() !== memberId
         );
+
+        // Also remove from coAdmins if they are one
+        workspace.coAdmins = workspace.coAdmins.filter(
+            admin => admin.toString() !== memberId
+        );
+
         await workspace.save();
 
         res.status(200).json({
@@ -375,6 +433,86 @@ export const removeMember = async (req: AuthRequest, res: Response) => {
             success: false,
             error: error.message
         });
+    }
+};
+
+export const promoteToCoAdmin = async (req: AuthRequest, res: Response) => {
+    try {
+        const { id, memberId } = req.params;
+        const userId = req.user.userId;
+
+        const workspace = await Workspace.findById(id);
+
+        if (!workspace) {
+            return res.status(404).json({ success: false, error: "Workspace not found" });
+        }
+
+        // Only owner can promote members
+        if (workspace.ownerId.toString() !== userId) {
+            return res.status(403).json({ success: false, error: "Only the workspace owner can promote members" });
+        }
+
+        // Validate member belongs to workspace
+        if (!workspace.members.includes(memberId as any)) {
+            return res.status(400).json({ success: false, error: "User is not a member of this workspace" });
+        }
+
+        // Prevent promoting the owner
+        if (memberId === userId) {
+            return res.status(400).json({ success: false, error: "Owner cannot be promoted (already has full access)" });
+        }
+
+        // Check if already co-admin
+        if (workspace.coAdmins.includes(memberId as any)) {
+            return res.status(400).json({ success: false, error: "User is already a co-admin" });
+        }
+
+        workspace.coAdmins.push(memberId as any);
+        await workspace.save();
+
+        res.status(200).json({
+            success: true,
+            message: "Member promoted to co-admin successfully",
+            data: workspace
+        });
+    } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+export const demoteToMember = async (req: AuthRequest, res: Response) => {
+    try {
+        const { id, memberId } = req.params;
+        const userId = req.user.userId;
+
+        const workspace = await Workspace.findById(id);
+
+        if (!workspace) {
+            return res.status(404).json({ success: false, error: "Workspace not found" });
+        }
+
+        // Only owner can demote members
+        if (workspace.ownerId.toString() !== userId) {
+            return res.status(403).json({ success: false, error: "Only the workspace owner can demote co-admins" });
+        }
+
+        // Check if user is a co-admin
+        if (!workspace.coAdmins.includes(memberId as any)) {
+            return res.status(400).json({ success: false, error: "User is not a co-admin" });
+        }
+
+        workspace.coAdmins = workspace.coAdmins.filter(
+            admin => admin.toString() !== memberId
+        );
+        await workspace.save();
+
+        res.status(200).json({
+            success: true,
+            message: "Co-admin demoted to member successfully",
+            data: workspace
+        });
+    } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
     }
 };
 
@@ -391,9 +529,12 @@ export const createTask = async (req: AuthRequest, res: Response) => {
         // Check membership
         if (!workspace.members.includes(userId)) return res.status(403).json({ success: false, error: "Access denied" });
 
-        // Basic permissions: Admin/Owner can create tasks
-        if (workspace.ownerId.toString() !== userId) {
-            return res.status(403).json({ success: false, error: "Only workspace owner can create tasks" });
+        // Basic permissions: Admin/Owner or Co-Admin can create tasks
+        const isOwner = workspace.ownerId.toString() === userId;
+        const isCoAdmin = workspace.coAdmins.includes(userId as any);
+
+        if (!isOwner && !isCoAdmin) {
+            return res.status(403).json({ success: false, error: "Only workspace owner or co-admins can create tasks" });
         }
 
         const newTask: ITask = {
@@ -431,7 +572,34 @@ export const createTask = async (req: AuthRequest, res: Response) => {
         }
 
         targetBoard.tasks.push(newTask);
+
+        // Populate members to get member emails
+        await workspace.populate('members', 'email name');
+        const memberEmails = (workspace.members as any[])
+            .map(m => m.email)
+            .filter(email => email !== undefined);
+
         await workspace.save();
+
+        // Trigger webhook for activity added
+        const User = require('../models/User').default;
+        const admin = await User.findById(userId);
+        if (admin) {
+            notifyActivityAdded({
+                workspaceId: workspace._id.toString(),
+                workspaceName: workspace.name,
+                adminId: userId,
+                adminName: admin.name || 'Unknown Admin',
+                adminEmail: admin.email || 'No email',
+                memberEmails: memberEmails,
+                taskId: newTask.id,
+                taskTitle: newTask.title,
+                taskDescription: newTask.description || '',
+                taskPriority: newTask.priority,
+                taskDeadline: newTask.deadline,
+                addedAt: new Date()
+            }).catch(err => console.error("Webhook error:", err));
+        }
 
         res.status(201).json({ success: true, data: newTask });
     } catch (error: any) {
@@ -467,8 +635,10 @@ export const updateTask = async (req: AuthRequest, res: Response) => {
         if (!task) return res.status(404).json({ success: false, error: "Task not found" });
 
         const isOwner = workspace.ownerId.toString() === userId;
+        const isCoAdmin = workspace.coAdmins.includes(userId as any);
+        const isAdmin = isOwner || isCoAdmin;
 
-        if (!isOwner) {
+        if (!isAdmin) {
             // Check if trying to update restricted fields
             const restrictedFields = ['startDate', 'deadline', 'dependencies', 'title', 'description', 'assigneeId', 'color'];
             const updatesKeys = Object.keys(updates);
@@ -517,52 +687,102 @@ export const updateTask = async (req: AuthRequest, res: Response) => {
         }
 
         // Apply updates
-        if (isOwner) {
-            // Admin can update everything
+        if (isAdmin) {
+            // Admin/Co-Admin can update everything
+            const oldGlobalStatus = task.status;
             Object.assign(task, updates);
-        } else {
-            // Members: Can only update 'status' (global status - wait, can they?)
-            // The prompt said: "Members can add their progress status... they themselves can add and delete"
-            // "Members can only change their own status".
-            // "Activity Status" (global) vs "Member Status" (individual).
-            // Let's assume 'status' (global) is Admin only? Or shared?
-            // Prompt: "Member able to add/edit their activity Status... Admins should be easily able to see... Admin should be able add... description... Members can add their progress status"
-            // It implies the global 'status' might be derived or admin managed, but members manage THEIROWN status.
+            task.updatedAt = new Date();
 
-            // Let's allow members to update `memberStatuses` ONLY for themselves.
+            // Populate members for emails
+            await workspace.populate('members', 'email name');
+            const memberEmails = (workspace.members as any[])
+                .map((m: any) => m.email)
+                .filter((email: any) => !!email);
+
+            await workspace.save();
+
+            // Fire webhook only when global status actually changed
+            if (updates.status && updates.status !== oldGlobalStatus) {
+                const UserModel = require('../models/User').default;
+                const actor = await UserModel.findById(userId);
+                const owner = await UserModel.findById(workspace.ownerId);
+                if (actor && owner) {
+                    notifyTaskProgressUpdated({
+                        workspaceId: workspace._id.toString(),
+                        workspaceName: workspace.name,
+                        userId: actor._id.toString(),
+                        userName: actor.name || 'Unknown',
+                        userEmail: actor.email || '',
+                        adminEmail: owner.email || '',
+                        memberEmails,
+                        taskId: task.id,
+                        taskTitle: task.title,
+                        oldStatus: oldGlobalStatus || '',
+                        newStatus: updates.status,
+                        updatedAt: new Date()
+                    }).catch((err: any) => console.error('Task Webhook Error:', err));
+                }
+            }
+
+            return res.status(200).json({ success: true, data: task });
+        } else {
+            // Members: Can only update `memberStatuses` for themselves
             if (updates.memberStatuses && Array.isArray(updates.memberStatuses)) {
                 const newMemberStatuses = updates.memberStatuses;
 
                 // We need to merge safely
                 if (!task.memberStatuses) task.memberStatuses = [];
 
+                // Populate members for emails (needed for webhook)
+                await workspace.populate('members', 'email name');
+                const memberEmails = (workspace.members as any[])
+                    .map((m: any) => m.email)
+                    .filter((email: any) => !!email);
+
                 newMemberStatuses.forEach((newStatus: any) => {
                     // Check if this status update belongs to the requesting user
                     if (newStatus.userId === userId) {
                         // Valid update for self
                         const existingIndex = task!.memberStatuses!.findIndex((s: any) => s.userId === userId);
+                        let oldStatus = 'To Do';
                         if (existingIndex >= 0) {
+                            oldStatus = task!.memberStatuses![existingIndex].status;
                             task!.memberStatuses![existingIndex] = newStatus;
                         } else {
                             task!.memberStatuses!.push(newStatus);
                         }
+
+                        // Trigger webhook
+                        const UserModel = require('../models/User').default;
+                        UserModel.findById(userId).then((user: any) => {
+                            UserModel.findById(workspace.ownerId).then((admin: any) => {
+                                if (user && admin && oldStatus !== newStatus.status) {
+                                    notifyTaskProgressUpdated({
+                                        workspaceId: workspace._id.toString(),
+                                        workspaceName: workspace.name,
+                                        userId: user._id.toString(),
+                                        userName: user.name,
+                                        userEmail: user.email,
+                                        adminEmail: admin.email,
+                                        memberEmails,
+                                        taskId: task!.id,
+                                        taskTitle: task!.title,
+                                        oldStatus: oldStatus,
+                                        newStatus: newStatus.status,
+                                        updatedAt: new Date()
+                                    }).catch((err: any) => console.error('Task Webhook Error:', err));
+                                }
+                            });
+                        });
                     }
                     // If they try to update others, we ignore it (or error, but ignoring is softer)
                 });
             }
 
-            // Block global status update if not allowed? 
-            // "Members can only change their own status" -> Implies global status is Admin?
-            // Let's restrict global 'status' too for now to be safe, unless requested otherwise.
-            // If `status` is in updates, ignore it for members?
-            // The prompt says "Members can add their progress status...". Use own judgement.
-            // I will BLOCK global status update for members to avoid confusion.
+            task.updatedAt = new Date();
+            await workspace.save();
+            return res.status(200).json({ success: true, data: task });
         }
-
-        task.updatedAt = new Date();
-
-        await workspace.save();
-        res.status(200).json({ success: true, data: task });
     } catch (error: any) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -609,9 +829,12 @@ export const updateDocumentStatus = async (req: AuthRequest, res: Response) => {
         const workspace = await Workspace.findById(id);
         if (!workspace) return res.status(404).json({ success: false, error: "Workspace not found" });
 
-        // Only owner can update status
-        if (workspace.ownerId.toString() !== userId) {
-            return res.status(403).json({ success: false, error: "Only workspace owner can update document status" });
+        // Only owner or co-admin can update status
+        const isOwner = workspace.ownerId.toString() === userId;
+        const isCoAdmin = workspace.coAdmins.includes(userId as any);
+
+        if (!isOwner && !isCoAdmin) {
+            return res.status(403).json({ success: false, error: "Only workspace admins can update document status" });
         }
 
         const docIndex = workspace.documents.findIndex(d => d.analysisId === analysisId);
@@ -621,6 +844,46 @@ export const updateDocumentStatus = async (req: AuthRequest, res: Response) => {
 
         workspace.documents[docIndex].status = status;
         await workspace.save();
+
+        if (status === 'Accepted') {
+            const document = workspace.documents[docIndex];
+            // Fetch admin details
+            const User = require('../models/User').default;
+            const admin = await User.findById(userId);
+
+            if (admin) {
+                notifyReportAccepted({
+                    workspaceId: workspace._id.toString(),
+                    workspaceName: workspace.name,
+                    userId: document.userId,
+                    userName: document.submitterName || 'Unknown User',
+                    userEmail: document.submitterEmail || '',
+                    adminEmail: admin.email,
+                    fileName: document.fileName,
+                    analysisId: document.analysisId,
+                    acceptedAt: new Date()
+                }).catch(err => console.error('Webhook error:', err));
+            }
+        } else if (status === 'Rejected') {
+            const document = workspace.documents[docIndex];
+            // Fetch admin details
+            const User = require('../models/User').default;
+            const admin = await User.findById(userId);
+
+            if (admin) {
+                notifyReportRejected({
+                    workspaceId: workspace._id.toString(),
+                    workspaceName: workspace.name,
+                    userId: document.userId,
+                    userName: document.submitterName || 'Unknown User',
+                    userEmail: document.submitterEmail || '',
+                    adminEmail: admin.email,
+                    fileName: document.fileName,
+                    analysisId: document.analysisId,
+                    rejectedAt: new Date()
+                }).catch(err => console.error('Webhook error:', err));
+            }
+        }
 
         res.status(200).json({ success: true, data: workspace });
     } catch (error: any) {
@@ -651,14 +914,15 @@ export const addDocumentComment = async (req: AuthRequest, res: Response) => {
 
         const document = workspace.documents[docIndex];
         const isOwner = workspace.ownerId.toString() === userId;
+        const isCoAdmin = workspace.coAdmins.includes(userId as any);
+        const isAdmin = isOwner || isCoAdmin;
         const isDocOwner = document.userId === userId;
 
         // Allow Admin OR Document Owner
-        if (!isOwner && !isDocOwner) {
+        if (!isAdmin && !isDocOwner) {
             return res.status(403).json({ success: false, error: "You can only comment on your own documents" });
         }
 
-        // Fetch user details for the comment
         // Fetch user details for the comment
         const User = require('../models/User').default;
         const user = await User.findById(userId);
@@ -668,7 +932,7 @@ export const addDocumentComment = async (req: AuthRequest, res: Response) => {
             text,
             userId,
             userName: user?.name || 'Unknown User',
-            role: isOwner ? 'Admin' : 'Member',
+            role: isAdmin ? (isOwner ? 'Owner' : 'Co-Admin') : 'Member',
             createdAt: new Date(),
             updatedAt: new Date()
         };
@@ -709,10 +973,12 @@ export const editDocumentComment = async (req: AuthRequest, res: Response) => {
 
         const comment = comments[commentIndex];
         const isOwner = workspace.ownerId.toString() === userId;
+        const isCoAdmin = workspace.coAdmins.includes(userId as any);
+        const isAdmin = isOwner || isCoAdmin;
         const isCommentAuthor = comment.userId === userId;
 
         // Allow Admin OR Comment Author
-        if (!isOwner && !isCommentAuthor) {
+        if (!isAdmin && !isCommentAuthor) {
             return res.status(403).json({ success: false, error: "You can only edit your own comments" });
         }
 
@@ -745,10 +1011,12 @@ export const deleteDocumentComment = async (req: AuthRequest, res: Response) => 
         if (!comment) return res.status(404).json({ success: false, error: "Comment not found" });
 
         const isOwner = workspace.ownerId.toString() === userId;
+        const isCoAdmin = workspace.coAdmins.includes(userId as any);
+        const isAdmin = isOwner || isCoAdmin;
         const isCommentAuthor = comment.userId === userId;
 
         // Allow Admin OR Comment Author
-        if (!isOwner && !isCommentAuthor) {
+        if (!isAdmin && !isCommentAuthor) {
             return res.status(403).json({ success: false, error: "You can only delete your own comments" });
         }
 
@@ -784,6 +1052,48 @@ export const getWorkspaceBoard = async (req: AuthRequest, res: Response) => {
         }
 
         res.status(200).json({ success: true, data: workspace.boards });
+    } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+export const archiveWorkspace = async (req: AuthRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.userId;
+
+        const workspace = await Workspace.findById(id);
+        if (!workspace) return res.status(404).json({ success: false, error: 'Workspace not found' });
+
+        if (workspace.ownerId.toString() !== userId) {
+            return res.status(403).json({ success: false, error: 'Only the workspace owner can archive it' });
+        }
+
+        workspace.isArchived = true;
+        await workspace.save();
+
+        res.status(200).json({ success: true, message: 'Workspace archived', data: workspace });
+    } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+export const unarchiveWorkspace = async (req: AuthRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.userId;
+
+        const workspace = await Workspace.findById(id);
+        if (!workspace) return res.status(404).json({ success: false, error: 'Workspace not found' });
+
+        if (workspace.ownerId.toString() !== userId) {
+            return res.status(403).json({ success: false, error: 'Only the workspace owner can unarchive it' });
+        }
+
+        workspace.isArchived = false;
+        await workspace.save();
+
+        res.status(200).json({ success: true, message: 'Workspace unarchived', data: workspace });
     } catch (error: any) {
         res.status(500).json({ success: false, error: error.message });
     }
