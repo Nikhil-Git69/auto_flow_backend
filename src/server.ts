@@ -33,16 +33,25 @@ const PORT = Number(process.env.PORT) || 5000
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
+
+const allowed = new Set([
+  "http://localhost:3000",
+  "https://autoflow.nikhilnagarkoti.com.np",
+  "https://www.nikhilnagarkoti.com.np",
+]);
+
 app.use(cors({
   origin: (origin, cb) => {
-    const allowed = [
-      "http://localhost:3000",
-      "https://autoflowwebappvercel.vercel.app",
-      "https://autoflow.nikhilnagarkoti.com.np",
-      "https://www.nikhilnagarkoti.com.np",
+    if (!origin) return cb(null, true);
 
-    ];
-    if (!origin || allowed.includes(origin)) return cb(null, true);
+    // allow exact known domains
+    if (allowed.has(origin)) return cb(null, true);
+
+    // allow vercel preview URLs 
+    if (origin.endsWith(".vercel.app") && origin.includes("autoflowwebappvercel")) {
+      return cb(null, true);
+    }
+
     return cb(new Error("Not allowed by CORS"), false);
   },
   credentials: true,
