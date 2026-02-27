@@ -8,8 +8,12 @@ import { auth } from '../middleware/auth';
 const router = Router();
 
 // Ensure the directory exists
-const uploadDir = path.join(__dirname, '../../uploads/avatars');
-const bannerDir = path.join(__dirname, '../../uploads/banners');
+// const uploadDir = path.join(__dirname, '../../uploads/avatars');
+// const bannerDir = path.join(__dirname, '../../uploads/banners');
+
+const uploadDir = path.join(process.cwd(), 'uploads', 'avatars');
+const bannerDir = path.join(process.cwd(), 'uploads', 'banners');
+
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 if (!fs.existsSync(bannerDir)) fs.mkdirSync(bannerDir, { recursive: true });
 

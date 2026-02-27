@@ -138,9 +138,13 @@ app.use("/workspace", workspaceRoutes);
 app.use("/users", userRoutes);
 
 // Serve extracted figures and avatars statically
-app.use("/uploads/figures", express.static(path.join(__dirname, "../uploads/figures")));
-app.use("/uploads/avatars", express.static(path.join(__dirname, "../uploads/avatars")));
-app.use("/uploads/banners", express.static(path.join(__dirname, "../uploads/banners")));
+//"__dirname" works for local but would break in production
+// app.use("/uploads/figures", express.static(path.join(__dirname, "../uploads/figures")));
+// app.use("/uploads/avatars", express.static(path.join(__dirname, "../uploads/avatars")));
+// app.use("/uploads/banners", express.static(path.join(__dirname, "../uploads/banners")));
+
+//for production 
+app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

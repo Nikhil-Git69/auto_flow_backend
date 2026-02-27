@@ -1,9 +1,13 @@
 import multer from 'multer';
 
+
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
 // Configure multer storage and file filter
-const storage = multer.memoryStorage();
+
+const storage = multer.memoryStorage(); //local 
+
+
 
 const fileFilter = (req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
   const allowedMimeTypes = [
@@ -47,5 +51,6 @@ export const uploadAny = multer({
   limits: { fileSize: MAX_FILE_SIZE },
   fileFilter
 }).any();
+
 
 export { MAX_FILE_SIZE };
