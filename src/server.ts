@@ -42,19 +42,7 @@ const allowed = new Set([
 ]);
 
 app.use(cors({
-  origin: (origin, cb) => {
-    if (!origin) return cb(null, true);
-
-    // allow exact known domains
-    if (allowed.has(origin)) return cb(null, true);
-
-    // allow vercel preview URLs 
-    if (origin.endsWith(".vercel.app") && origin.includes("autoflowwebappvercel")) {
-      return cb(null, true);
-    }
-
-    return cb(new Error("Not allowed by CORS"), false);
-  },
+  origin: true,
   credentials: true,
 }));
 

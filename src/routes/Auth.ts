@@ -282,6 +282,36 @@ router.post("/login", async (req: Request, res: Response) => {
 /**
  * GET /auth/me
  */
+router.get("/me", async (req: Request, res: Response) => {
+  try {
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+    if (!token) {
+      return res.status(401).json({ success: false, error: "Access denied. No token provided." });
+    }
+
+    const decoded: any = jwt.verify(token, JWT_SECRET);
+    const userId = decoded.userId;
+
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(401).json({ success: false, error: "User not found" });
+    }
+
+    res.json({ success: true, data: buildUserResponse(user) });
+
+  } catch (err: any) {
+    console.error("Get profile error:", err);
+    if (err.name === 'JsonWebTokenError') {
+      return res.status(401).json({ success: false, error: "Invalid token" });
+    }
+    res.status(500).json({ success: false, error: "Failed to get profile", details: err.message });
+  }
+});
+
+/**
+ * DELETE /auth/me
+ */
 router.delete("/me", async (req: Request, res: Response) => {
   try {
     const token = req.header('Authorization')?.replace('Bearer ', '');
