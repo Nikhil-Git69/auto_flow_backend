@@ -180,25 +180,38 @@ const getTemplateRequirements = (formatType: string): string => {
 
 export const extractTextFromWordDocument = async (fileBuffer: Buffer, fileName: string): Promise<ProcessedDocument> => {
   const ext = path.extname(fileName).toLowerCase();
-  try {
-    if (ext === '.docx') {
+
+  if (ext === '.docx') {
+    try {
       const result = await mammoth.extractRawText({ buffer: fileBuffer });
+      if (!result.value || result.value.trim() === '') {
+        throw new Error("Text extraction yielded empty result. The document may be empty or contain only images.");
+      }
       return {
         textContent: result.value,
         fileType: 'docx',
         fileName,
         wordCount: result.value.split(/\s+/).length
       };
+    } catch (error: any) {
+      console.error("Mammoth extraction error:", error);
+      throw new Error(`Failed to extract text from DOCX file: ${error.message || 'Corrupt or unsupported format.'}`);
     }
-    const text = fileBuffer.toString('utf-8');
-    return {
-      textContent: text,
-      fileType: (ext.replace('.', '') as any) || 'txt',
-      fileName,
-      wordCount: text.split(/\s+/).length
-    };
-  } catch (error) {
-    return { textContent: 'Extraction failed', fileType: 'txt', fileName, wordCount: 0 };
+  } else if (ext === '.doc') {
+    throw new Error("Legacy .doc format is not supported. Please convert your file to .docx before uploading.");
+  } else {
+    // Fallback for txt or other unhandled types that got this far
+    try {
+      const text = fileBuffer.toString('utf-8');
+      return {
+        textContent: text,
+        fileType: (ext.replace('.', '') as any) || 'txt',
+        fileName,
+        wordCount: text.split(/\s+/).length
+      };
+    } catch (error) {
+      throw new Error("Failed to read text file.");
+    }
   }
 };
 
@@ -568,12 +581,14 @@ export const analyzeDocumentWithAI = async (
         4. ** metadata **: Set 'type' to 'Concept'.
         5. ** issues **: Empty array(No correction needed).
         6. ** correctedContent **: Null(No editing).
-
-        ## DOCUMENT CONTENT:
-        ${isPDF ? pdfTextContent : extractedText}
       `;
 
       const contentParts: any[] = [{ text: promptText }];
+
+      const docContent = isPDF ? pdfTextContent : extractedText;
+      if (docContent) {
+        contentParts.push({ text: `DOCUMENT CONTENT:\n${docContent}` });
+      }
 
       // For PDFs, also send the visual data
       if (isPDF) {
@@ -656,12 +671,15 @@ export const analyzeDocumentWithAI = async (
         4. **metadata**: Set 'type' to 'Report'.
         5. **issues**: Empty array.
         6. **correctedContent**: Null.
-
-        ## DOCUMENT CONTENT:
-        \${isPDF ? pdfTextContent : extractedText}
       `;
 
       const contentParts: any[] = [{ text: promptText }];
+
+      const docContent = isPDF ? pdfTextContent : extractedText;
+      if (docContent) {
+        contentParts.push({ text: `DOCUMENT CONTENT:\n${docContent}` });
+      }
+
       if (isPDF) {
         contentParts.push({
           inlineData: {
@@ -673,8 +691,16 @@ export const analyzeDocumentWithAI = async (
 
       const result = await generateWithRetry(model, contentParts);
 
-      const responseText = result.response.text().replace(/\`\`\`json|\`\`\`/g, "").trim();
-      const parsed = JSON.parse(responseText);
+      let responseText = result.response.text().replace(/\`\`\`json|\`\`\`/g, "").trim();
+
+      let parsed;
+      try {
+        parsed = JSON.parse(responseText);
+      } catch (parseError: any) {
+        console.error("Failed to parse Gemini response for Report:", parseError);
+        console.log("Raw response:", responseText.substring(0, 500));
+        return createFallbackResponse(fileName, null, fileMimeType, formatType, extractFormatRequirements(formatRequirements), isPDF ? pdfTextContent : extractedText, parseError.message);
+      }
 
       return {
         success: true,
